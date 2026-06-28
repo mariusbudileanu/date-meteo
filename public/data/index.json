@@ -1,8 +1,8 @@
 {
-  "generated_at_utc": "2026-06-28T13:36:35Z",
+  "generated_at_utc": "2026-06-28T14:04:20Z",
   "latest_file": "latest.geojson",
   "alerts_found_raw": true,
-  "raw_alert_count": 6,
+  "raw_alert_count": 9,
   "coord_gis_count": 88,
   "features_with_geometry": 88,
   "bbox": [
@@ -19,8 +19,8 @@
       "coord_gis_count": 88
     },
     "Nowcasting": {
-      "bytes": 2513,
-      "raw_alert_count": 4,
+      "bytes": 4527,
+      "raw_alert_count": 7,
       "coord_gis_count": 0
     }
   },
