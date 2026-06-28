@@ -30,11 +30,14 @@ map.fitBounds(ROMANIA_BOUNDS, {
 });
 
 setTimeout(() => {
-  map.invalidateSize();
-  map.fitBounds(ROMANIA_BOUNDS, {
-    padding: [20, 20],
-  });
-}, 300);
+  map.invalidateSize(true);
+  debugLeafletCss();
+}, 500);
+
+setTimeout(() => {
+  map.invalidateSize(true);
+  debugLeafletCss();
+}, 1500);
 
 addLegend();
 start();
@@ -111,11 +114,56 @@ async function loadAlertsForDate(dateString) {
     map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
   }
 
+  requestAnimationFrame(() => {
+    refitMapToCurrentLayer();
+  });
+
   setTimeout(() => {
-    map.invalidateSize();
-  }, 200);
+    map.invalidateSize(true);
+
+    if (alertsLayer && alertsLayer.getLayers().length > 0 && alertsLayer.getBounds().isValid()) {
+      map.fitBounds(alertsLayer.getBounds(), {
+        padding: [30, 30],
+        maxZoom: 8,
+      });
+    }
+  }, 1000);
 
   setStatus(`${data.features.length} ${data.features.length === 1 ? "avertizare" : "avertizări"} pentru ${dateString}`);
+}
+
+function debugLeafletCss() {
+  const tile = document.querySelector(".leaflet-tile");
+  const mapPane = document.querySelector(".leaflet-map-pane");
+  const container = document.getElementById("alerts-map");
+  const debugInfo = {
+    containerWidth: container?.clientWidth,
+    containerHeight: container?.clientHeight,
+    tilePosition: tile ? getComputedStyle(tile).position : null,
+    tileWidth: tile ? getComputedStyle(tile).width : null,
+    tileHeight: tile ? getComputedStyle(tile).height : null,
+    mapPanePosition: mapPane ? getComputedStyle(mapPane).position : null,
+  };
+
+  window.__leafletDebugCss = window.__leafletDebugCss || [];
+  window.__leafletDebugCss.push(debugInfo);
+
+  console.log("Leaflet CSS debug:", debugInfo);
+}
+
+function refitMapToCurrentLayer() {
+  map.invalidateSize(true);
+
+  if (alertsLayer && alertsLayer.getLayers().length > 0 && alertsLayer.getBounds().isValid()) {
+    map.fitBounds(alertsLayer.getBounds(), {
+      padding: [30, 30],
+      maxZoom: 8,
+    });
+  } else {
+    map.fitBounds(ROMANIA_BOUNDS, {
+      padding: [20, 20],
+    });
+  }
 }
 
 function clearAlertsLayer() {
