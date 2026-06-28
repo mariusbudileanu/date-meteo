@@ -1,48 +1,55 @@
-const COLOR_STYLES = {
-  Verde: { color: "#2E7D32", fillOpacity: 0.30 },
-  Galben: { color: "#FFD700", fillOpacity: 0.40 },
-  Portocaliu: { color: "#FF8C00", fillOpacity: 0.50 },
-  Roșu: { color: "#FF0000", fillOpacity: 0.60 },
-};
+const ROMANIA_CENTER = [45.9432, 24.9668];
+const ROMANIA_BOUNDS = [
+  [43.5, 20.0],
+  [48.8, 30.0],
+];
 
-const EMPTY_MESSAGE = "Nu au fost emise avertizări în această dată.";
+const EMPTY_MESSAGE = "Nu au fost emise sau valabile avertizări pentru această dată.";
 const MISSING_GEOMETRY_MESSAGE =
   "Există avertizări ANM, dar fluxul XML curent nu conține geometrii GIS parsabile.";
+
 const statusElement = document.getElementById("status");
 const datePicker = document.getElementById("alert-date-picker");
 let dataIndex = { dates: [], files: [] };
-let alertLayer = null;
+let alertsLayer = null;
 
 const map = L.map("alerts-map", {
-  center: [45.9432, 24.9668],
+  center: ROMANIA_CENTER,
   zoom: 7,
+  minZoom: 5,
+  maxZoom: 12,
+});
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "&copy; OpenStreetMap contributors",
+}).addTo(map);
+
+map.fitBounds(ROMANIA_BOUNDS, {
+  padding: [20, 20],
 });
 
 setTimeout(() => {
   map.invalidateSize();
-}, 200);
-
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: "abcd",
-  maxZoom: 19,
-}).addTo(map);
+  map.fitBounds(ROMANIA_BOUNDS, {
+    padding: [20, 20],
+  });
+}, 300);
 
 addLegend();
 start();
 
 async function start() {
   datePicker.value = todayIso();
-  datePicker.addEventListener("change", () => loadDate(datePicker.value));
+  datePicker.addEventListener("change", () => loadAlertsForDate(datePicker.value));
 
   dataIndex = await loadIndex();
-  await loadDate(datePicker.value);
+  await loadAlertsForDate(datePicker.value);
 }
 
 async function loadIndex() {
   try {
-    const response = await fetch(`data/index.json?t=${Date.now()}`, { cache: "no-store" });
+    const response = await fetch("data/index.json", { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -53,57 +60,73 @@ async function loadIndex() {
   }
 }
 
-async function loadDate(dateValue) {
-  if (alertLayer) {
-    alertLayer.remove();
-    alertLayer = null;
-  }
-  statusElement.textContent = "Se încarcă...";
+async function loadAlertsForDate(dateString) {
+  const url = `data/${dateString}.geojson`;
+  console.log("Loading alerts:", url);
+  setStatus("Se încarcă...");
 
-  if (!dateValue) {
-    statusElement.textContent = EMPTY_MESSAGE;
+  let response = await fetch(url, { cache: "no-store" });
+
+  if (!response.ok) {
+    console.warn("No daily file, trying latest.geojson");
+    response = await fetch("data/latest.geojson", { cache: "no-store" });
+  }
+
+  if (!response.ok) {
+    console.error("Could not load alert GeoJSON.");
+    clearAlertsLayer();
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+    setStatus(emptyMessageFor(dataIndex));
     return;
   }
 
-  try {
-    const response = await fetch(`data/${dateValue}.geojson?t=${Date.now()}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+  const data = await response.json();
+  console.log("GeoJSON loaded:", data);
+  console.log("Feature count:", data.features ? data.features.length : 0);
 
-    const data = await response.json();
-    const features = Array.isArray(data.features) ? data.features : [];
+  clearAlertsLayer();
 
-    if (features.length === 0) {
-      statusElement.textContent = emptyMessageFor(data.metadata);
-      map.setView([45.9432, 24.9668], 7);
-      return;
-    }
-
-    alertLayer = L.geoJSON(data, {
-      style: getAlertStyle,
-      onEachFeature: onEachAlert,
-    }).addTo(map);
-
-    if (alertLayer.getLayers().length > 0) {
-      map.fitBounds(alertLayer.getBounds(), {
-        padding: [30, 30],
-        maxZoom: 8,
-      });
-    } else {
-      map.setView([45.9432, 24.9668], 7);
-    }
-
-    statusElement.textContent = `${features.length} ${
-      features.length === 1 ? "avertizare" : "avertizări"
-    } pentru ${dateValue}`;
-  } catch (error) {
-    console.warn(`GeoJSON for ${dateValue} could not be loaded`, error);
-    statusElement.textContent = emptyMessageFor(dataIndex);
-    map.setView([45.9432, 24.9668], 7);
+  if (!data.features || data.features.length === 0) {
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+    setStatus(emptyMessageFor(data.metadata || dataIndex));
+    return;
   }
+
+  alertsLayer = L.geoJSON(data, {
+    style: getAlertStyle,
+    onEachFeature: onEachAlertFeature,
+  }).addTo(map);
+
+  const layerCount = alertsLayer.getLayers().length;
+  console.log("Leaflet layer count:", layerCount);
+
+  if (layerCount > 0 && alertsLayer.getBounds().isValid()) {
+    console.log("Layer bounds:", alertsLayer.getBounds().toBBoxString());
+    map.fitBounds(alertsLayer.getBounds(), {
+      padding: [30, 30],
+      maxZoom: 8,
+    });
+  } else {
+    console.error("GeoJSON loaded, but no valid Leaflet layers were created.");
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+  }
+
+  setTimeout(() => {
+    map.invalidateSize();
+  }, 200);
+
+  setStatus(`${data.features.length} ${data.features.length === 1 ? "avertizare" : "avertizări"} pentru ${dateString}`);
+}
+
+function clearAlertsLayer() {
+  if (alertsLayer) {
+    map.removeLayer(alertsLayer);
+    alertsLayer = null;
+  }
+}
+
+function setStatus(message) {
+  statusElement.textContent = message;
 }
 
 function emptyMessageFor(metadata) {
@@ -117,34 +140,34 @@ function emptyMessageFor(metadata) {
 }
 
 function getAlertStyle(feature) {
-  const colorStyle = colorStyleFor(feature?.properties || {});
+  const props = feature.properties || {};
+  const culoare = String(props.culoare ?? "0").trim();
+  const cod = String(props.cod ?? "").toLowerCase();
+
+  let color = "#2E7D32";
+  let fillOpacity = 0.30;
+
+  if (culoare === "1" || cod.includes("galben")) {
+    color = "#FFD700";
+    fillOpacity = 0.45;
+  } else if (culoare === "2" || cod.includes("portocaliu")) {
+    color = "#FF8C00";
+    fillOpacity = 0.50;
+  } else if (culoare === "3" || cod.includes("roșu") || cod.includes("rosu")) {
+    color = "#FF0000";
+    fillOpacity = 0.60;
+  }
+
   return {
-    color: colorStyle.color,
-    fillColor: colorStyle.color,
-    fillOpacity: colorStyle.fillOpacity,
-    weight: 2,
-    opacity: 0.95,
+    color,
+    fillColor: color,
+    weight: 1.5,
+    opacity: 1,
+    fillOpacity,
   };
 }
 
-function colorStyleFor(properties) {
-  const rawColor = String(properties.culoare ?? "").trim();
-  const cod = String(properties.cod ?? "").trim();
-
-  if (rawColor === "1" || cod === "Galben") {
-    return COLOR_STYLES.Galben;
-  }
-  if (rawColor === "2" || cod === "Portocaliu") {
-    return COLOR_STYLES.Portocaliu;
-  }
-  if (rawColor === "3" || cod === "Roșu") {
-    return COLOR_STYLES.Roșu;
-  }
-
-  return COLOR_STYLES.Verde;
-}
-
-function onEachAlert(feature, layer) {
+function onEachAlertFeature(feature, layer) {
   const props = feature.properties || {};
   const cod = props.cod || "Verde";
   const codClass = `cod-${slugify(cod)}`;
@@ -167,11 +190,16 @@ function addLegend() {
   const legend = L.control({ position: "bottomright" });
   legend.onAdd = () => {
     const container = L.DomUtil.create("div", "leaflet-control legend");
-    const rows = Object.entries(COLOR_STYLES)
+    const rows = [
+      ["Verde", "#2E7D32"],
+      ["Galben", "#FFD700"],
+      ["Portocaliu", "#FF8C00"],
+      ["Roșu", "#FF0000"],
+    ]
       .map(
-        ([label, style]) => `
+        ([label, color]) => `
           <div class="legend-row">
-            <span class="legend-swatch" style="background:${style.color}"></span>
+            <span class="legend-swatch" style="background:${color}"></span>
             <span>${label}</span>
           </div>
         `,

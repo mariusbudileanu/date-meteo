@@ -82,6 +82,13 @@ def main() -> int:
         source_diagnostics=source_diagnostics,
     )
 
+    bbox_is_valid = True
+    print(f"GeoJSON feature count before bbox validation: {len(features)}")
+    if len(features) > 0:
+        bbox_is_valid = validate_feature_bbox(features)
+    if not bbox_is_valid:
+        return 1
+
     write_outputs(features, run_date, scraped_at_utc, metadata)
     print(f"Generated GeoJSON features: {len(features)}")
     return 0
@@ -118,9 +125,63 @@ def build_metadata(
         "raw_alert_count": raw_alert_count,
         "coord_gis_count": coord_gis_count,
         "features_with_geometry": len(features),
+        "bbox": calculate_feature_bbox(features),
         "reason": reason,
         "sources": source_diagnostics,
     }
+
+
+def validate_feature_bbox(features: list[dict]) -> bool:
+    bbox = calculate_feature_bbox(features)
+    if bbox is None:
+        return True
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    print(f"GeoJSON bbox min_lon: {min_lon}")
+    print(f"GeoJSON bbox max_lon: {max_lon}")
+    print(f"GeoJSON bbox min_lat: {min_lat}")
+    print(f"GeoJSON bbox max_lat: {max_lat}")
+
+    is_valid = (
+        18 <= min_lon <= 31
+        and 18 <= max_lon <= 31
+        and 42 <= min_lat <= 50
+        and 42 <= max_lat <= 50
+    )
+    if not is_valid:
+        print(
+            "ERROR: GeoJSON bbox is outside Romania. CRS transform or coordinate order is wrong.",
+            file=sys.stderr,
+        )
+    return is_valid
+
+
+def calculate_feature_bbox(features: list[dict]) -> list[float] | None:
+    longitudes: list[float] = []
+    latitudes: list[float] = []
+
+    def collect_coordinates(value: object) -> None:
+        if (
+            isinstance(value, (list, tuple))
+            and len(value) >= 2
+            and isinstance(value[0], (int, float))
+            and isinstance(value[1], (int, float))
+        ):
+            longitudes.append(float(value[0]))
+            latitudes.append(float(value[1]))
+            return
+
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                collect_coordinates(item)
+
+    for feature in features:
+        collect_coordinates(feature.get("geometry", {}).get("coordinates", []))
+
+    if not longitudes or not latitudes:
+        return None
+
+    return [min(longitudes), min(latitudes), max(longitudes), max(latitudes)]
 
 
 def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, metadata: dict) -> None:

@@ -12,7 +12,7 @@ from lxml import etree
 from pyproj import Transformer
 from shapely import wkt
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
-from shapely.ops import transform as shapely_transform, unary_union
+from shapely.ops import transform, unary_union
 
 try:
     from shapely.validation import make_valid
@@ -87,7 +87,11 @@ FIELD_ALIASES = {
     },
 }
 
-PROJECT_TO_WGS84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+TRANSFORMER_3857_TO_4326 = Transformer.from_crs(
+    "EPSG:3857",
+    "EPSG:4326",
+    always_xy=True,
+)
 
 
 def parse_xml(xml_bytes: bytes) -> etree._Element:
@@ -260,16 +264,20 @@ def element_has_field(element: etree._Element, field_name: str) -> bool:
 
 
 def geojson_geometry_from_coord_gis(coord_gis: str) -> dict[str, Any]:
-    geometry = polygonal_geometry_from_wkt(coord_gis)
-    geometry = repair_geometry(geometry)
-    geometry_wgs84 = shapely_transform(PROJECT_TO_WGS84.transform, geometry)
-    geometry_wgs84 = repair_geometry(geometry_wgs84)
+    geometry_wgs84 = parse_and_transform_wkt(coord_gis)
 
     if not geometry_in_romania_bounds(geometry_wgs84):
         bounds = ", ".join(f"{value:.4f}" for value in geometry_wgs84.bounds)
         raise ValueError(f"geometry outside Romania bounds after EPSG:4326 transform ({bounds})")
 
     return mapping(geometry_wgs84)
+
+
+def parse_and_transform_wkt(coord_text: str) -> Polygon | MultiPolygon:
+    geom_3857 = polygonal_geometry_from_wkt(coord_text)
+    geom_3857 = repair_geometry(geom_3857)
+    geom_4326 = transform(TRANSFORMER_3857_TO_4326.transform, geom_3857)
+    return repair_geometry(geom_4326)
 
 
 def polygonal_geometry_from_wkt(coord_gis: str) -> Polygon | MultiPolygon:
