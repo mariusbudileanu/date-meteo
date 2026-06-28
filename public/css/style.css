@@ -1,0 +1,170 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --text: #16212f;
+  --muted: #5d6b7a;
+  --border: #d8dee6;
+  --accent: #1769aa;
+  --shadow: 0 10px 28px rgba(22, 33, 47, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.app-header {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 12px rgba(22, 33, 47, 0.08);
+  position: relative;
+  z-index: 500;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+#status {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.date-control {
+  display: inline-grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.date-control input {
+  width: 168px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: #ffffff;
+  font: inherit;
+  text-transform: none;
+}
+
+main {
+  height: calc(100% - 76px);
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.leaflet-control.legend {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.legend-title {
+  margin-bottom: 6px;
+  font-weight: 750;
+}
+
+.legend-row {
+  display: grid;
+  grid-template-columns: 16px auto;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 3px;
+}
+
+.popup-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #111111;
+  font-weight: 800;
+}
+
+.popup-title.cod-verde {
+  background: #c8e6c9;
+}
+
+.popup-title.cod-galben {
+  background: #fff59d;
+}
+
+.popup-title.cod-portocaliu {
+  background: #ffd8a8;
+}
+
+.popup-title.cod-rosu {
+  background: #ffcdd2;
+}
+
+.popup-meta {
+  margin: 8px 0;
+  color: #3d4a58;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.popup-message {
+  max-width: 360px;
+  color: #202936;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    min-height: 118px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  main {
+    height: calc(100% - 118px);
+  }
+
+  .date-control,
+  .date-control input {
+    width: 100%;
+  }
+}

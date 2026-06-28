@@ -1,0 +1,164 @@
+const COLOR_STYLES = {
+  Verde: { color: "#2E7D32", fillOpacity: 0.30 },
+  Galben: { color: "#FFD700", fillOpacity: 0.40 },
+  Portocaliu: { color: "#FF8C00", fillOpacity: 0.50 },
+  Roșu: { color: "#FF0000", fillOpacity: 0.60 },
+};
+
+const EMPTY_MESSAGE = "Nu au fost emise avertizări în această dată.";
+const statusElement = document.getElementById("status");
+const datePicker = document.getElementById("alert-date-picker");
+
+const map = L.map("map").setView([45.9432, 24.9668], 7);
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: "abcd",
+  maxZoom: 19,
+}).addTo(map);
+
+const alertLayer = L.geoJSON(null, {
+  style: styleFeature,
+  onEachFeature: bindPopup,
+}).addTo(map);
+
+addLegend();
+start();
+
+async function start() {
+  datePicker.value = todayIso();
+  datePicker.addEventListener("change", () => loadDate(datePicker.value));
+
+  await loadIndex();
+  await loadDate(datePicker.value);
+}
+
+async function loadIndex() {
+  try {
+    const response = await fetch(`data/index.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.warn("index.json could not be loaded", error);
+    return { dates: [], files: [] };
+  }
+}
+
+async function loadDate(dateValue) {
+  alertLayer.clearLayers();
+  statusElement.textContent = "Se încarcă...";
+
+  if (!dateValue) {
+    statusElement.textContent = EMPTY_MESSAGE;
+    return;
+  }
+
+  try {
+    const response = await fetch(`data/${dateValue}.geojson?t=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const features = Array.isArray(data.features) ? data.features : [];
+
+    if (features.length === 0) {
+      statusElement.textContent = EMPTY_MESSAGE;
+      map.setView([45.9432, 24.9668], 7);
+      return;
+    }
+
+    alertLayer.addData(data);
+    const bounds = alertLayer.getBounds();
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 9 });
+    }
+
+    statusElement.textContent = `${features.length} avertizare${features.length === 1 ? "" : "i"} pentru ${dateValue}`;
+  } catch (error) {
+    console.warn(`GeoJSON for ${dateValue} could not be loaded`, error);
+    statusElement.textContent = EMPTY_MESSAGE;
+    map.setView([45.9432, 24.9668], 7);
+  }
+}
+
+function styleFeature(feature) {
+  const cod = feature?.properties?.cod || "Verde";
+  const colorStyle = COLOR_STYLES[cod] || COLOR_STYLES.Verde;
+  return {
+    color: colorStyle.color,
+    fillColor: colorStyle.color,
+    fillOpacity: colorStyle.fillOpacity,
+    weight: 2,
+    opacity: 0.95,
+  };
+}
+
+function bindPopup(feature, layer) {
+  const props = feature.properties || {};
+  const cod = props.cod || "Verde";
+  const codClass = `cod-${slugify(cod)}`;
+  const message = DOMPurify.sanitize(props.mesaj || "");
+
+  layer.bindPopup(`
+    <span class="popup-title ${codClass}">${escapeHtml(cod)}</span>
+    <div class="popup-meta">
+      <strong>Tip:</strong> ${escapeHtml(props.tip || props.source || "")}<br>
+      <strong>Apariție:</strong> ${escapeHtml(props.data_aparitiei || "")}<br>
+      <strong>Expirare:</strong> ${escapeHtml(props.data_expirarii || "")}
+    </div>
+    <div class="popup-message">${message || "Fără mesaj."}</div>
+  `);
+}
+
+function addLegend() {
+  const legend = L.control({ position: "bottomright" });
+  legend.onAdd = () => {
+    const container = L.DomUtil.create("div", "leaflet-control legend");
+    const rows = Object.entries(COLOR_STYLES)
+      .map(
+        ([label, style]) => `
+          <div class="legend-row">
+            <span class="legend-swatch" style="background:${style.color}"></span>
+            <span>${label}</span>
+          </div>
+        `,
+      )
+      .join("");
+
+    container.innerHTML = `<div class="legend-title">Coduri</div>${rows}`;
+    return container;
+  };
+  legend.addTo(map);
+}
+
+function todayIso() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function slugify(value) {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
