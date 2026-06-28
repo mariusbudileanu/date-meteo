@@ -68,11 +68,11 @@ def main() -> int:
             warn(warning)
 
         features.extend(source_features)
-        print(
-            f"{source}: {diagnostics['raw_alert_count']} raw alert(s), "
-            f"{diagnostics['coord_gis_count']} coordGis geometries, "
-            f"{len(source_features)} valid feature(s)"
-        )
+        print(f"{source} XML bytes: {len(xml_bytes)}")
+        print(f"{source} avertizare elements: {diagnostics['raw_alert_count']}")
+        print(f"{source} geometry elements with coordGis: {diagnostics['coord_gis_count']}")
+        if source == "Nowcasting" and diagnostics["raw_alert_count"] == 0 and diagnostics["coord_gis_count"] == 0:
+            print("Nowcasting: 0 avertizări, 0 geometrii.")
 
     metadata = build_metadata(
         generated_at_utc=scraped_at_utc,
@@ -83,7 +83,7 @@ def main() -> int:
     )
 
     write_outputs(features, run_date, scraped_at_utc, metadata)
-    print(f"Total valid features: {len(features)}")
+    print(f"Generated GeoJSON features: {len(features)}")
     return 0
 
 
@@ -131,7 +131,7 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, me
     }
 
     write_json(DATA_DIR / "latest.geojson", latest_geojson)
-    print(f"Wrote public/data/latest.geojson")
+    print("Saved: public/data/latest.geojson")
 
     index = load_index()
     dates = list(dict.fromkeys(index.get("dates", [])))
@@ -140,7 +140,7 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, me
     if features:
         dated_name = f"{run_date}.geojson"
         write_json(DATA_DIR / dated_name, latest_geojson)
-        print(f"Wrote public/data/{dated_name}")
+        print(f"Saved: public/data/{dated_name}")
 
         if run_date not in dates:
             dates.append(run_date)
@@ -162,7 +162,7 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, me
             "files": files,
         },
     )
-    print("Wrote public/data/index.json")
+    print("Updated: public/data/index.json")
 
 
 def load_index() -> dict:

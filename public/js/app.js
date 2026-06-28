@@ -11,19 +11,22 @@ const MISSING_GEOMETRY_MESSAGE =
 const statusElement = document.getElementById("status");
 const datePicker = document.getElementById("alert-date-picker");
 let dataIndex = { dates: [], files: [] };
+let alertLayer = null;
 
-const map = L.map("map").setView([45.9432, 24.9668], 7);
+const map = L.map("alerts-map", {
+  center: [45.9432, 24.9668],
+  zoom: 7,
+});
+
+setTimeout(() => {
+  map.invalidateSize();
+}, 200);
 
 L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   subdomains: "abcd",
   maxZoom: 19,
-}).addTo(map);
-
-const alertLayer = L.geoJSON(null, {
-  style: styleFeature,
-  onEachFeature: bindPopup,
 }).addTo(map);
 
 addLegend();
@@ -51,7 +54,10 @@ async function loadIndex() {
 }
 
 async function loadDate(dateValue) {
-  alertLayer.clearLayers();
+  if (alertLayer) {
+    alertLayer.remove();
+    alertLayer = null;
+  }
   statusElement.textContent = "Se încarcă...";
 
   if (!dateValue) {
@@ -76,13 +82,23 @@ async function loadDate(dateValue) {
       return;
     }
 
-    alertLayer.addData(data);
-    const bounds = alertLayer.getBounds();
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 9 });
+    alertLayer = L.geoJSON(data, {
+      style: getAlertStyle,
+      onEachFeature: onEachAlert,
+    }).addTo(map);
+
+    if (alertLayer.getLayers().length > 0) {
+      map.fitBounds(alertLayer.getBounds(), {
+        padding: [30, 30],
+        maxZoom: 8,
+      });
+    } else {
+      map.setView([45.9432, 24.9668], 7);
     }
 
-    statusElement.textContent = `${features.length} avertizare${features.length === 1 ? "" : "i"} pentru ${dateValue}`;
+    statusElement.textContent = `${features.length} ${
+      features.length === 1 ? "avertizare" : "avertizări"
+    } pentru ${dateValue}`;
   } catch (error) {
     console.warn(`GeoJSON for ${dateValue} could not be loaded`, error);
     statusElement.textContent = emptyMessageFor(dataIndex);
@@ -100,9 +116,8 @@ function emptyMessageFor(metadata) {
   return EMPTY_MESSAGE;
 }
 
-function styleFeature(feature) {
-  const cod = feature?.properties?.cod || "Verde";
-  const colorStyle = COLOR_STYLES[cod] || COLOR_STYLES.Verde;
+function getAlertStyle(feature) {
+  const colorStyle = colorStyleFor(feature?.properties || {});
   return {
     color: colorStyle.color,
     fillColor: colorStyle.color,
@@ -112,7 +127,24 @@ function styleFeature(feature) {
   };
 }
 
-function bindPopup(feature, layer) {
+function colorStyleFor(properties) {
+  const rawColor = String(properties.culoare ?? "").trim();
+  const cod = String(properties.cod ?? "").trim();
+
+  if (rawColor === "1" || cod === "Galben") {
+    return COLOR_STYLES.Galben;
+  }
+  if (rawColor === "2" || cod === "Portocaliu") {
+    return COLOR_STYLES.Portocaliu;
+  }
+  if (rawColor === "3" || cod === "Roșu") {
+    return COLOR_STYLES.Roșu;
+  }
+
+  return COLOR_STYLES.Verde;
+}
+
+function onEachAlert(feature, layer) {
   const props = feature.properties || {};
   const cod = props.cod || "Verde";
   const codClass = `cod-${slugify(cod)}`;
@@ -122,8 +154,10 @@ function bindPopup(feature, layer) {
     <span class="popup-title ${codClass}">${escapeHtml(cod)}</span>
     <div class="popup-meta">
       <strong>Tip:</strong> ${escapeHtml(props.tip || props.source || "")}<br>
+      <strong>Cod zonă:</strong> ${escapeHtml(props.cod_judet || "")}<br>
       <strong>Apariție:</strong> ${escapeHtml(props.data_aparitiei || "")}<br>
-      <strong>Expirare:</strong> ${escapeHtml(props.data_expirarii || "")}
+      <strong>Expirare:</strong> ${escapeHtml(props.data_expirarii || "")}<br>
+      <strong>Interval:</strong> ${escapeHtml(props.intervalul || "")}
     </div>
     <div class="popup-message">${message || "Fără mesaj."}</div>
   `);

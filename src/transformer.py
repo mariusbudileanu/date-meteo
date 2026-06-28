@@ -62,6 +62,22 @@ FIELD_ALIASES = {
         "fenomene",
         "fenomen",
     },
+    "fenomene_vizate": {
+        "fenomenevizate",
+        "fenomene",
+        "phenomena",
+    },
+    "intervalul": {
+        "intervalul",
+        "interval",
+        "validitate",
+    },
+    "zona_afectata": {
+        "zonaafectata",
+        "zoneafectate",
+        "arii",
+        "area",
+    },
     "coord_gis": {
         "coordgis",
         "coordonategis",
@@ -112,9 +128,11 @@ def xml_diagnostics(xml_bytes: bytes) -> dict[str, int]:
 
 
 def iter_geometry_elements(root: etree._Element) -> list[etree._Element]:
-    selected: list[etree._Element] = []
-    seen: set[int] = set()
+    selected = list(root.xpath("//*[@coordGis]"))
+    if selected:
+        return selected
 
+    seen: set[int] = set()
     for element in root.iter():
         if not element_has_field(element, "coord_gis"):
             continue
@@ -136,29 +154,54 @@ def feature_from_alert_element(
     if not coord_gis:
         raise ValueError("missing coordGis")
 
+    parent_alert = find_parent_alert(alert_element)
     geometry = geojson_geometry_from_coord_gis(coord_gis)
-    color_code, color_name = normalize_color(extract_context_field(alert_element, "culoare"))
+    color_code, color_name = normalize_color(
+        extract_own_field(alert_element, "culoare")
+        or (extract_own_field(parent_alert, "culoare") if parent_alert is not None else None)
+    )
+    code = extract_own_attribute(alert_element, "cod") or ""
 
     properties = {
         "source": source,
         "tip": source,
-        "data_aparitiei": extract_context_field(alert_element, "data_aparitiei") or "",
-        "data_expirarii": extract_context_field(alert_element, "data_expirarii") or "",
+        "cod_judet": code,
+        "element_type": strip_ns(alert_element.tag),
+        "data_aparitiei": extract_parent_field(parent_alert, "data_aparitiei") or "",
+        "data_expirarii": extract_parent_field(parent_alert, "data_expirarii") or "",
         "culoare": color_code,
         "cod": color_name,
-        "mesaj": extract_context_field(alert_element, "mesaj", keep_markup=True) or "",
+        "fenomene_vizate": extract_parent_field(parent_alert, "fenomene_vizate") or "",
+        "intervalul": extract_parent_field(parent_alert, "intervalul") or "",
+        "zona_afectata": extract_parent_field(parent_alert, "zona_afectata") or "",
+        "mesaj": extract_parent_field(parent_alert, "mesaj", keep_markup=True) or "",
         "scraped_at_utc": scraped_at_utc,
     }
-
-    area_code = extract_own_attribute(alert_element, "cod")
-    if area_code:
-        properties["area_code"] = area_code
 
     return {
         "type": "Feature",
         "geometry": geometry,
         "properties": properties,
     }
+
+
+def find_parent_alert(element: etree._Element) -> etree._Element | None:
+    cursor = element
+    while cursor is not None:
+        if normalized_name(cursor.tag) == "avertizare":
+            return cursor
+        cursor = cursor.getparent()
+    return None
+
+
+def extract_parent_field(
+    parent: etree._Element | None,
+    field_name: str,
+    keep_markup: bool = False,
+) -> str | None:
+    if parent is None:
+        return None
+    return extract_own_field(parent, field_name, keep_markup)
 
 
 def extract_field(alert_element: etree._Element, field_name: str, keep_markup: bool = False) -> str | None:
@@ -351,6 +394,16 @@ def normalized_name(value: Any) -> str:
         local_name = value.rsplit("}", 1)[-1]
 
     return re.sub(r"[^a-z0-9]", "", fold_ascii(local_name).lower())
+
+
+def strip_ns(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+
+    try:
+        return etree.QName(value).localname
+    except ValueError:
+        return value.rsplit("}", 1)[-1]
 
 
 def inner_markup(element: etree._Element) -> str:
