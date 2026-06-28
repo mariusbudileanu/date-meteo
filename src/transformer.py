@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import math
 import re
 import unicodedata
+from datetime import datetime
 from typing import Any
 
 from lxml import etree
@@ -103,10 +105,14 @@ def features_from_xml(xml_bytes: bytes, source: str, scraped_at_utc: str) -> tup
     root = parse_xml(xml_bytes)
     features: list[dict[str, Any]] = []
     warnings: list[str] = []
+    alert_ids = build_alert_ids(root, source)
 
     for index, alert_element in enumerate(iter_geometry_elements(root), start=1):
         try:
-            features.append(feature_from_alert_element(alert_element, source, scraped_at_utc))
+            parent_alert = find_parent_alert(alert_element)
+            parent_key = element_path(parent_alert)
+            alert_id = alert_ids.get(parent_key, build_orphan_alert_id(source, index))
+            features.append(feature_from_alert_element(alert_element, parent_alert, alert_id, source, scraped_at_utc))
         except ValueError as exc:
             warnings.append(f"{source} alert #{index}: {exc}")
 
@@ -131,6 +137,42 @@ def xml_diagnostics(xml_bytes: bytes) -> dict[str, int]:
     }
 
 
+def build_alert_ids(root: etree._Element, source: str) -> dict[str, str]:
+    alert_ids: dict[str, str] = {}
+    for index, alert_element in enumerate(root.xpath("//*[local-name()='avertizare']"), start=1):
+        alert_ids[element_path(alert_element)] = build_alert_id(source, alert_element, index)
+    return alert_ids
+
+
+def element_path(element: etree._Element | None) -> str:
+    if element is None:
+        return ""
+    return element.getroottree().getpath(element)
+
+
+def build_alert_id(source: str, alert_element: etree._Element, index: int) -> str:
+    key_parts = [
+        source,
+        str(index),
+        extract_own_field(alert_element, "data_aparitiei") or "",
+        extract_own_field(alert_element, "data_expirarii") or "",
+        extract_own_field(alert_element, "intervalul") or "",
+        extract_own_field(alert_element, "mesaj", keep_markup=True) or "",
+    ]
+    digest = hashlib.sha1("|".join(key_parts).encode("utf-8")).hexdigest()[:12]
+    return f"{slugify_identifier(source) or 'anm'}-{index:03d}-{digest}"
+
+
+def build_orphan_alert_id(source: str, index: int) -> str:
+    return f"{slugify_identifier(source) or 'anm'}-orphan-{index:03d}"
+
+
+def build_feature_id(alert_id: str, county_code: str, color_code: str, coord_gis: str) -> str:
+    digest = hashlib.sha1(f"{county_code}|{color_code}|{coord_gis}".encode("utf-8")).hexdigest()[:10]
+    county = slugify_identifier(county_code) or "zona"
+    return f"{alert_id}-{county}-{color_code}-{digest}"
+
+
 def iter_geometry_elements(root: etree._Element) -> list[etree._Element]:
     selected = list(root.xpath("//*[@coordGis]"))
     if selected:
@@ -151,6 +193,8 @@ def iter_geometry_elements(root: etree._Element) -> list[etree._Element]:
 
 def feature_from_alert_element(
     alert_element: etree._Element,
+    parent_alert: etree._Element | None,
+    alert_id: str,
     source: str,
     scraped_at_utc: str,
 ) -> dict[str, Any]:
@@ -158,32 +202,45 @@ def feature_from_alert_element(
     if not coord_gis:
         raise ValueError("missing coordGis")
 
-    parent_alert = find_parent_alert(alert_element)
     geometry = geojson_geometry_from_coord_gis(coord_gis)
     color_code, color_name = normalize_color(
         extract_own_field(alert_element, "culoare")
         or (extract_own_field(parent_alert, "culoare") if parent_alert is not None else None)
     )
-    code = extract_own_attribute(alert_element, "cod") or ""
+    county_code = extract_own_attribute(alert_element, "cod") or ""
+    message = extract_parent_field(parent_alert, "mesaj", keep_markup=True) or ""
+    parent_phenomena = extract_parent_field(parent_alert, "fenomene_vizate") or ""
+    phenomena_by_code = extract_phenomena_by_code(message)
+    main_phenomenon = phenomena_by_code.get(color_code) or fallback_phenomenon(parent_phenomena)
+    issued_at = extract_parent_field(parent_alert, "data_aparitiei") or ""
+    expires_at = extract_parent_field(parent_alert, "data_expirarii") or ""
+    duration_hours, calendar_days_text = calculate_duration(issued_at, expires_at)
+    feature_id = build_feature_id(alert_id, county_code, color_code, coord_gis)
 
     properties = {
+        "alert_id": alert_id,
+        "feature_id": feature_id,
         "source": source,
         "tip": source,
-        "cod_judet": code,
+        "cod_judet": county_code,
         "element_type": strip_ns(alert_element.tag),
-        "data_aparitiei": extract_parent_field(parent_alert, "data_aparitiei") or "",
-        "data_expirarii": extract_parent_field(parent_alert, "data_expirarii") or "",
+        "data_aparitiei": issued_at,
+        "data_expirarii": expires_at,
+        "durata_ore": duration_hours,
+        "durata_zile_text": calendar_days_text,
         "culoare": color_code,
         "cod": color_name,
-        "fenomene_vizate": extract_parent_field(parent_alert, "fenomene_vizate") or "",
+        "fenomene_vizate": parent_phenomena,
+        "fenomen_principal": main_phenomenon,
         "intervalul": extract_parent_field(parent_alert, "intervalul") or "",
         "zona_afectata": extract_parent_field(parent_alert, "zona_afectata") or "",
-        "mesaj": extract_parent_field(parent_alert, "mesaj", keep_markup=True) or "",
+        "mesaj": message,
         "scraped_at_utc": scraped_at_utc,
     }
 
     return {
         "type": "Feature",
+        "id": feature_id,
         "geometry": geometry,
         "properties": properties,
     }
@@ -365,6 +422,118 @@ def geometry_in_romania_bounds(geometry: Polygon | MultiPolygon) -> bool:
     )
 
 
+def extract_phenomena_by_code(mesaj_html: str | None) -> dict[str, str]:
+    if not mesaj_html:
+        return {}
+
+    phenomena: dict[str, str] = {}
+    current_code: str | None = None
+    lines = html_to_lines(mesaj_html)
+
+    for index, line in enumerate(lines):
+        heading_code = color_code_from_heading(line)
+        if heading_code is not None:
+            current_code = heading_code
+
+        if current_code is None or "fenomene vizate" not in fold_ascii(line).lower():
+            continue
+
+        value = value_after_colon(line)
+        if not value and index + 1 < len(lines):
+            value = lines[index + 1]
+
+        value = truncate_section_value(value)
+        if value:
+            phenomena[current_code] = value
+
+    return phenomena
+
+
+def html_to_lines(value: str) -> list[str]:
+    text = html.unescape(str(value)).replace("\xa0", " ")
+    text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", text)
+    text = re.sub(r"(?i)</\s*(p|div|li|tr|h[1-6])\s*>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+
+    lines = []
+    for line in text.splitlines():
+        cleaned = clean_text(line)
+        if cleaned:
+            lines.append(cleaned)
+    return lines
+
+
+def color_code_from_heading(value: str) -> str | None:
+    folded = fold_ascii(value).upper()
+    if "COD GALBEN" in folded:
+        return "1"
+    if "COD PORTOCALIU" in folded:
+        return "2"
+    if "COD ROSU" in folded:
+        return "3"
+    if "COD VERDE" in folded:
+        return "0"
+    return None
+
+
+def value_after_colon(value: str) -> str:
+    if ":" not in value:
+        return ""
+    return clean_text(value.split(":", 1)[1]) or ""
+
+
+def truncate_section_value(value: str) -> str:
+    if not value:
+        return ""
+
+    match = re.search(
+        r"(?i)\b(?:Zone afectate|Interval de valabilitate|COD\s+(?:GALBEN|PORTOCALIU|RO[ȘS]U|VERDE))\b",
+        value,
+    )
+    if match:
+        value = value[: match.start()]
+
+    return (clean_text(value) or "").rstrip(" ;")
+
+
+def fallback_phenomenon(value: str | None) -> str:
+    cleaned = (clean_text(value) or "").rstrip(" ;")
+    folded = fold_ascii(cleaned).lower()
+    if cleaned and "conform text" not in folded:
+        return cleaned
+    return "conform textului avertizării ANM"
+
+
+def calculate_duration(start_value: str, end_value: str) -> tuple[int | float | None, str]:
+    start = parse_alert_datetime(start_value)
+    end = parse_alert_datetime(end_value)
+
+    if start is None or end is None or end < start:
+        return None, ""
+
+    hours = (end - start).total_seconds() / 3600
+    duration_hours: int | float
+    if hours.is_integer():
+        duration_hours = int(hours)
+    else:
+        duration_hours = round(hours, 1)
+
+    calendar_days = max(1, (end.date() - start.date()).days + 1)
+    day_word = "zi calendaristică" if calendar_days == 1 else "zile calendaristice"
+    return duration_hours, f"{calendar_days} {day_word}"
+
+
+def parse_alert_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 def normalize_color(value: str | None) -> tuple[str, str]:
     if value is None:
         return "0", COLOR_NAMES["0"]
@@ -412,6 +581,12 @@ def strip_ns(value: Any) -> str:
         return etree.QName(value).localname
     except ValueError:
         return value.rsplit("}", 1)[-1]
+
+
+def slugify_identifier(value: str) -> str:
+    folded = fold_ascii(str(value)).lower()
+    folded = re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
+    return folded
 
 
 def inner_markup(element: etree._Element) -> str:

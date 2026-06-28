@@ -4,12 +4,16 @@ const ROMANIA_BOUNDS = [
   [48.8, 30.0],
 ];
 
+const NO_ALERTS_MESSAGE = "Nu există avertizări înregistrate pentru această dată.";
 const EMPTY_MESSAGE = "Nu au fost emise sau valabile avertizări pentru această dată.";
 const MISSING_GEOMETRY_MESSAGE =
   "Există avertizări ANM, dar fluxul XML curent nu conține geometrii GIS parsabile.";
+const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
 
 const statusElement = document.getElementById("status");
 const datePicker = document.getElementById("alert-date-picker");
+const featureDetailsElement = document.getElementById("feature-details");
+const alertsSummaryElement = document.getElementById("alerts-summary");
 let dataIndex = { dates: [], files: [] };
 let alertsLayer = null;
 
@@ -43,11 +47,11 @@ addLegend();
 start();
 
 async function start() {
-  datePicker.value = todayIso();
+  dataIndex = await loadIndex();
+  datePicker.value = preferredInitialDate();
   datePicker.addEventListener("change", () => loadAlertsForDate(datePicker.value));
 
-  dataIndex = await loadIndex();
-  await loadAlertsForDate(datePicker.value);
+  await loadLatestAlerts(datePicker.value || "ultima rulare");
 }
 
 async function loadIndex() {
@@ -63,35 +67,63 @@ async function loadIndex() {
   }
 }
 
-async function loadAlertsForDate(dateString) {
-  const url = `data/${dateString}.geojson`;
-  console.log("Loading alerts:", url);
+async function loadLatestAlerts(dateLabel) {
   setStatus("Se încarcă...");
 
-  let response = await fetch(url, { cache: "no-store" });
-
-  if (!response.ok) {
-    console.warn("No daily file, trying latest.geojson");
-    response = await fetch("data/latest.geojson", { cache: "no-store" });
+  try {
+    const response = await fetch("data/latest.geojson", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    renderAlertData(data, dateLabel);
+  } catch (error) {
+    console.error("latest.geojson could not be loaded", error);
+    renderNoAlerts(EMPTY_MESSAGE);
   }
+}
 
-  if (!response.ok) {
-    console.error("Could not load alert GeoJSON.");
-    clearAlertsLayer();
-    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-    setStatus(emptyMessageFor(dataIndex));
+async function loadAlertsForDate(dateString) {
+  if (!dateString) {
+    renderNoAlerts(NO_ALERTS_MESSAGE);
     return;
   }
 
-  const data = await response.json();
+  setStatus("Se încarcă...");
+
+  if (!isDateAvailable(dateString)) {
+    renderNoAlerts(NO_ALERTS_MESSAGE);
+    return;
+  }
+
+  const url = `data/${dateString}.geojson`;
+  console.log("Loading alerts:", url);
+
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    renderAlertData(data, dateString);
+  } catch (error) {
+    console.warn(`No alert file for ${dateString}`, error);
+    renderNoAlerts(NO_ALERTS_MESSAGE);
+  }
+}
+
+function renderAlertData(data, dateLabel) {
+  const features = Array.isArray(data.features) ? data.features : [];
   console.log("GeoJSON loaded:", data);
-  console.log("Feature count:", data.features ? data.features.length : 0);
+  console.log("Feature count:", features.length);
 
   clearAlertsLayer();
+  renderSelectedFeature(null);
 
-  if (!data.features || data.features.length === 0) {
-    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-    setStatus(emptyMessageFor(data.metadata || dataIndex));
+  if (features.length === 0) {
+    const message = emptyMessageFor(data.metadata || dataIndex);
+    renderNoAlerts(message);
     return;
   }
 
@@ -129,7 +161,126 @@ async function loadAlertsForDate(dateString) {
     }
   }, 1000);
 
-  setStatus(`${data.features.length} ${data.features.length === 1 ? "avertizare" : "avertizări"} pentru ${dateString}`);
+  renderStatus(features, dateLabel);
+  renderAlertsSummary(features);
+}
+
+function renderNoAlerts(message) {
+  clearAlertsLayer();
+  renderSelectedFeature(null);
+  renderAlertsSummary([]);
+  map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+  setStatus(message);
+}
+
+function renderStatus(features, dateLabel) {
+  const alertCount = countDistinctAlerts(features);
+  const featureCount = features.length;
+  const alertPhrase = alertCount === 1 ? "1 avertizare activă" : `${alertCount} avertizări active`;
+  const zonePhrase = featureCount === 1 ? "1 zonă afectată" : `${featureCount} zone afectate`;
+  setStatus(`${alertPhrase} · ${zonePhrase} pentru ${dateLabel}`);
+}
+
+function renderSelectedFeature(feature) {
+  if (!feature) {
+    featureDetailsElement.classList.add("empty-state");
+    featureDetailsElement.innerHTML = "Nicio zonă selectată.";
+    return;
+  }
+
+  const props = feature.properties || {};
+  const code = props.cod || "Verde";
+  const phenomenon = props.fenomen_principal || PHENOMENON_FALLBACK;
+  const source = sourceLabel(props.source || props.tip);
+
+  featureDetailsElement.classList.remove("empty-state");
+  featureDetailsElement.innerHTML = `
+    <dl class="detail-list">
+      ${detailRow("Județ", props.cod_judet || "")}
+      ${detailRow("Cod", code)}
+      ${detailRow("Fenomen", phenomenon)}
+      ${detailRow("Valabilitate", formatValidity(props))}
+      ${detailRow("Durată", formatDuration(props))}
+      ${detailRow("Sursa", source)}
+    </dl>
+    <p class="alert-summary-text">${escapeHtml(shortFeatureText(props))}</p>
+  `;
+}
+
+function renderAlertsSummary(features) {
+  if (!features.length) {
+    alertsSummaryElement.classList.add("empty-state");
+    alertsSummaryElement.innerHTML = NO_ALERTS_MESSAGE;
+    return;
+  }
+
+  alertsSummaryElement.classList.remove("empty-state");
+  alertsSummaryElement.innerHTML = groupFeaturesByAlert(features)
+    .map((group) => alertCardHtml(group))
+    .join("");
+}
+
+function groupFeaturesByAlert(features) {
+  const groups = new Map();
+  for (const feature of features) {
+    const props = feature.properties || {};
+    const key = props.alert_id || `alert-${groups.size + 1}`;
+    if (!groups.has(key)) {
+      groups.set(key, { alertId: key, features: [] });
+    }
+    groups.get(key).features.push(feature);
+  }
+  return [...groups.values()];
+}
+
+function alertCardHtml(group) {
+  const properties = group.features.map((feature) => feature.properties || {});
+  const first = properties[0] || {};
+  const codes = sortedUnique(properties.map((props) => props.cod).filter(Boolean), codeSortKey);
+  const phenomena = sortedUnique(properties.map((props) => props.fenomen_principal).filter(Boolean));
+  const zones = sortedUnique(properties.map((props) => props.cod_judet).filter(Boolean));
+  const sources = sortedUnique(properties.map((props) => sourceLabel(props.source || props.tip)).filter(Boolean));
+  const message = DOMPurify.sanitize(first.mesaj || "");
+
+  return `
+    <article class="alert-card">
+      <h3>${escapeHtml(codes.join(" / ") || "Avertizare ANM")}</h3>
+      <div class="alert-card-grid">
+        <div><strong>Coduri:</strong> ${escapeHtml(codes.join(" / ") || "-")}</div>
+        <div><strong>Interval:</strong> ${escapeHtml(formatValidity(first))}</div>
+        <div><strong>Fenomene:</strong> ${escapeHtml(phenomena.join(" / ") || PHENOMENON_FALLBACK)}</div>
+        <div><strong>Număr zone/județe:</strong> ${group.features.length}</div>
+        <div><strong>Zone afectate:</strong> ${escapeHtml(zones.join(", ") || "-")}</div>
+        <div><strong>Sursa:</strong> ${escapeHtml(sources.join(" / ") || "ANM")}</div>
+      </div>
+      <details>
+        <summary>Vezi textul complet ANM</summary>
+        <div class="anm-message">${message || "Fără mesaj ANM."}</div>
+      </details>
+    </article>
+  `;
+}
+
+function onEachAlertFeature(feature, layer) {
+  const props = feature.properties || {};
+  const code = props.cod || "Verde";
+  const codeClass = `cod-${slugify(code)}`;
+
+  layer.bindPopup(`
+    <span class="popup-title ${codeClass}">${escapeHtml(code)}</span>
+    <div class="popup-meta">
+      <strong>Județ:</strong> ${escapeHtml(props.cod_judet || "")}<br>
+      <strong>Fenomen:</strong> ${escapeHtml(props.fenomen_principal || PHENOMENON_FALLBACK)}<br>
+      <strong>Valabilitate:</strong> ${escapeHtml(formatValidity(props))}<br>
+      <strong>Durată:</strong> ${escapeHtml(formatDuration(props))}<br>
+      <strong>Sursa:</strong> ${escapeHtml(sourceLabel(props.source || props.tip))}
+    </div>
+    <div class="popup-message">${escapeHtml(shortFeatureText(props))}</div>
+  `);
+
+  layer.on("click", () => {
+    renderSelectedFeature(feature);
+  });
 }
 
 function debugLeafletCss() {
@@ -184,24 +335,24 @@ function emptyMessageFor(metadata) {
       : metadata.reason || EMPTY_MESSAGE;
   }
 
-  return EMPTY_MESSAGE;
+  return NO_ALERTS_MESSAGE;
 }
 
 function getAlertStyle(feature) {
   const props = feature.properties || {};
-  const culoare = String(props.culoare ?? "0").trim();
-  const cod = String(props.cod ?? "").toLowerCase();
+  const colorCode = String(props.culoare ?? "0").trim();
+  const code = String(props.cod ?? "").toLowerCase();
 
   let color = "#2E7D32";
   let fillOpacity = 0.30;
 
-  if (culoare === "1" || cod.includes("galben")) {
+  if (colorCode === "1" || code.includes("galben")) {
     color = "#FFD700";
     fillOpacity = 0.45;
-  } else if (culoare === "2" || cod.includes("portocaliu")) {
+  } else if (colorCode === "2" || code.includes("portocaliu")) {
     color = "#FF8C00";
     fillOpacity = 0.50;
-  } else if (culoare === "3" || cod.includes("roșu") || cod.includes("rosu")) {
+  } else if (colorCode === "3" || code.includes("roșu") || code.includes("rosu")) {
     color = "#FF0000";
     fillOpacity = 0.60;
   }
@@ -213,25 +364,6 @@ function getAlertStyle(feature) {
     opacity: 1,
     fillOpacity,
   };
-}
-
-function onEachAlertFeature(feature, layer) {
-  const props = feature.properties || {};
-  const cod = props.cod || "Verde";
-  const codClass = `cod-${slugify(cod)}`;
-  const message = DOMPurify.sanitize(props.mesaj || "");
-
-  layer.bindPopup(`
-    <span class="popup-title ${codClass}">${escapeHtml(cod)}</span>
-    <div class="popup-meta">
-      <strong>Tip:</strong> ${escapeHtml(props.tip || props.source || "")}<br>
-      <strong>Cod zonă:</strong> ${escapeHtml(props.cod_judet || "")}<br>
-      <strong>Apariție:</strong> ${escapeHtml(props.data_aparitiei || "")}<br>
-      <strong>Expirare:</strong> ${escapeHtml(props.data_expirarii || "")}<br>
-      <strong>Interval:</strong> ${escapeHtml(props.intervalul || "")}
-    </div>
-    <div class="popup-message">${message || "Fără mesaj."}</div>
-  `);
 }
 
 function addLegend() {
@@ -258,6 +390,118 @@ function addLegend() {
     return container;
   };
   legend.addTo(map);
+}
+
+function preferredInitialDate() {
+  const dates = indexDates();
+  const today = todayIso();
+  if (dates.includes(today)) {
+    return today;
+  }
+  return dates[dates.length - 1] || today;
+}
+
+function isDateAvailable(dateString) {
+  return indexDates().includes(dateString);
+}
+
+function indexDates() {
+  if (Array.isArray(dataIndex.dates) && dataIndex.dates.length > 0) {
+    return dataIndex.dates;
+  }
+
+  if (!Array.isArray(dataIndex.files)) {
+    return [];
+  }
+
+  return dataIndex.files
+    .map((file) => {
+      if (typeof file === "string") {
+        return file.replace(/\.geojson$/, "");
+      }
+      return file?.date;
+    })
+    .filter(Boolean);
+}
+
+function countDistinctAlerts(features) {
+  const alertIds = new Set(
+    features
+      .map((feature) => feature.properties?.alert_id)
+      .filter(Boolean),
+  );
+  return alertIds.size || (features.length ? 1 : 0);
+}
+
+function detailRow(label, value) {
+  return `
+    <div class="detail-row">
+      <dt class="detail-label">${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value || "-")}</dd>
+    </div>
+  `;
+}
+
+function formatValidity(props) {
+  return props.intervalul || [formatAlertDateTime(props.data_aparitiei), formatAlertDateTime(props.data_expirarii)]
+    .filter(Boolean)
+    .join(" – ");
+}
+
+function formatDuration(props) {
+  const hours = props.durata_ore;
+  const days = props.durata_zile_text;
+  const hourText = hours ? `${hours} ${Number(hours) === 1 ? "oră" : "ore"}` : "";
+
+  if (hourText && days) {
+    return `${hourText} / ${days}`;
+  }
+  return hourText || days || "-";
+}
+
+function formatAlertDateTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const dayMonth = new Intl.DateTimeFormat("ro-RO", {
+    day: "numeric",
+    month: "long",
+  }).format(date);
+  const time = new Intl.DateTimeFormat("ro-RO", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+
+  return `${dayMonth}, ora ${time}`;
+}
+
+function shortFeatureText(props) {
+  const code = String(props.cod || "verde").toLowerCase();
+  const phenomenon = props.fenomen_principal || PHENOMENON_FALLBACK;
+  return `Această zonă este afectată de cod ${code} de ${phenomenon}.`;
+}
+
+function sourceLabel(source) {
+  if (!source) {
+    return "ANM";
+  }
+  return String(source).toLowerCase().includes("nowcasting") ? "ANM Nowcasting" : "ANM General";
+}
+
+function sortedUnique(values, sortFn) {
+  const unique = [...new Set(values.filter(Boolean))];
+  return unique.sort(sortFn);
+}
+
+function codeSortKey(a, b) {
+  const order = { Verde: 0, Galben: 1, Portocaliu: 2, Roșu: 3 };
+  return (order[a] ?? 99) - (order[b] ?? 99) || String(a).localeCompare(String(b), "ro");
 }
 
 function todayIso() {

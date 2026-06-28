@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -124,7 +124,9 @@ def build_metadata(
         "alerts_found_raw": alerts_found_raw,
         "raw_alert_count": raw_alert_count,
         "coord_gis_count": coord_gis_count,
+        "alert_count": distinct_alert_count(features),
         "features_with_geometry": len(features),
+        "feature_count": len(features),
         "bbox": calculate_feature_bbox(features),
         "reason": reason,
         "sources": source_diagnostics,
@@ -194,24 +196,31 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, me
     write_json(DATA_DIR / "latest.geojson", latest_geojson)
     print("Saved: public/data/latest.geojson")
 
-    index = load_index()
-    dates = list(dict.fromkeys(index.get("dates", [])))
-    files = list(dict.fromkeys(index.get("files", [])))
-
-    if features:
-        dated_name = f"{run_date}.geojson"
-        write_json(DATA_DIR / dated_name, latest_geojson)
-        print(f"Saved: public/data/{dated_name}")
-
-        if run_date not in dates:
-            dates.append(run_date)
-        if dated_name not in files:
-            files.append(dated_name)
+    features_by_date = group_features_by_date(features, run_date)
+    if features_by_date:
+        for date_string, dated_features in sorted(features_by_date.items()):
+            dated_name = f"{date_string}.geojson"
+            dated_metadata = {
+                **metadata,
+                "alert_count": distinct_alert_count(dated_features),
+                "features_with_geometry": len(dated_features),
+                "feature_count": len(dated_features),
+                "bbox": calculate_feature_bbox(dated_features),
+            }
+            write_json(
+                DATA_DIR / dated_name,
+                {
+                    "type": "FeatureCollection",
+                    "metadata": dated_metadata,
+                    "features": dated_features,
+                },
+            )
+            print(f"Saved: public/data/{dated_name}")
     else:
         print("No valid alerts; dated GeoJSON was not added to index.json")
 
-    dates.sort()
-    files.sort()
+    file_entries = build_index_file_entries()
+    dates = [entry["date"] for entry in file_entries]
 
     write_json(
         DATA_DIR / "index.json",
@@ -220,10 +229,102 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, me
             "latest_file": "latest.geojson",
             **metadata,
             "dates": dates,
-            "files": files,
+            "files": file_entries,
         },
     )
     print("Updated: public/data/index.json")
+
+
+def group_features_by_date(features: list[dict], fallback_date: str) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for feature in features:
+        for date_string in active_dates_for_feature(feature, fallback_date):
+            grouped.setdefault(date_string, []).append(feature)
+    return grouped
+
+
+def active_dates_for_feature(feature: dict, fallback_date: str) -> list[str]:
+    properties = feature.get("properties", {})
+    start = parse_alert_datetime(properties.get("data_aparitiei"))
+    end = parse_alert_datetime(properties.get("data_expirarii"))
+
+    if start is None or end is None or end < start:
+        return [fallback_date]
+
+    current = start.date()
+    last = end.date()
+    dates: list[str] = []
+    while current <= last:
+        dates.append(current.isoformat())
+        current += timedelta(days=1)
+    return dates
+
+
+def parse_alert_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def build_index_file_entries() -> list[dict]:
+    entries: list[dict] = []
+    for path in sorted(DATA_DIR.glob("????-??-??.geojson")):
+        data = load_geojson(path)
+        features = data.get("features", []) if isinstance(data, dict) else []
+        entries.append(
+            {
+                "date": path.stem,
+                "file": path.name,
+                "alert_count": distinct_alert_count(features),
+                "feature_count": len(features),
+                "codes": sorted_unique(feature_property_values(features, "cod"), key=code_sort_key),
+                "phenomena": sorted_unique(feature_property_values(features, "fenomen_principal")),
+            }
+        )
+    return entries
+
+
+def load_geojson(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        warn(f"Could not read {path.name}; excluding details from index")
+        return {}
+
+
+def distinct_alert_count(features: list[dict]) -> int:
+    alert_ids = {
+        str(feature.get("properties", {}).get("alert_id"))
+        for feature in features
+        if feature.get("properties", {}).get("alert_id")
+    }
+    if alert_ids:
+        return len(alert_ids)
+    return 1 if features else 0
+
+
+def feature_property_values(features: list[dict], key: str) -> list[str]:
+    values = []
+    for feature in features:
+        value = feature.get("properties", {}).get(key)
+        if value:
+            values.append(str(value))
+    return values
+
+
+def sorted_unique(values: list[str], key=None) -> list[str]:
+    unique = list(dict.fromkeys(value for value in values if value))
+    return sorted(unique, key=key)
+
+
+def code_sort_key(value: str) -> tuple[int, str]:
+    order = {"Verde": 0, "Galben": 1, "Portocaliu": 2, "Roșu": 3}
+    return (order.get(value, 99), value)
 
 
 def load_index() -> dict:

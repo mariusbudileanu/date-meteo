@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=leaflet-fix-20260628">
+    <link rel="stylesheet" href="css/style.css?v=alert-summary-20260628">
   </head>
   <body>
     <header class="app-header">
@@ -19,12 +19,27 @@
       </label>
     </header>
 
-    <main>
-      <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
+    <main class="main-content">
+      <section class="map-section" aria-label="Hartă și detalii avertizări">
+        <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
+        <aside class="detail-panel" aria-labelledby="selected-feature-title">
+          <h2 id="selected-feature-title">Detalii zonă selectată</h2>
+          <div id="feature-details" class="feature-details empty-state">Nicio zonă selectată.</div>
+        </aside>
+      </section>
+
+      <section class="alerts-summary-section" aria-labelledby="alerts-summary-title">
+        <h2 id="alerts-summary-title">Avertizări active pentru data selectată</h2>
+        <div id="alerts-summary" class="alerts-summary empty-state">Nu există avertizări încărcate.</div>
+      </section>
     </main>
+
+    <footer class="app-footer">
+      MeteoAlertRO utilizează date oficiale publicate de Administrația Națională de Meteorologie – meteoromania.ro. Acesta este un proiect personal de colectare, arhivare și vizualizare a avertizărilor meteo în timp real, cu scop de monitorizare pe termen lung.
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=leaflet-fix-20260628"></script>
+    <script src="js/app.js?v=alert-summary-20260628"></script>
   </body>
 </html>
