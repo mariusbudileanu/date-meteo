@@ -15,9 +15,9 @@ except ImportError:  # pragma: no cover - Python 3.9+ includes zoneinfo.
     ZoneInfo = None
 
 try:
-    from transformer import features_from_xml
+    from transformer import features_from_xml, xml_diagnostics
 except ImportError:  # pragma: no cover - useful when imported as a package.
-    from .transformer import features_from_xml
+    from .transformer import features_from_xml, xml_diagnostics
 
 
 ENDPOINTS = [
@@ -36,6 +36,9 @@ def main() -> int:
     run_date = current_bucharest_date()
 
     features: list[dict] = []
+    raw_alert_count = 0
+    coord_gis_count = 0
+    source_diagnostics: dict[str, dict] = {}
 
     for source, url in ENDPOINTS:
         try:
@@ -49,6 +52,13 @@ def main() -> int:
             continue
 
         try:
+            diagnostics = xml_diagnostics(xml_bytes)
+            source_diagnostics[source] = {
+                "bytes": len(xml_bytes),
+                **diagnostics,
+            }
+            raw_alert_count += diagnostics["raw_alert_count"]
+            coord_gis_count += diagnostics["coord_gis_count"]
             source_features, source_warnings = features_from_xml(xml_bytes, source, scraped_at_utc)
         except Exception as exc:
             warn(f"{source}: XML parsing failed: {exc}")
@@ -58,9 +68,21 @@ def main() -> int:
             warn(warning)
 
         features.extend(source_features)
-        print(f"{source}: {len(source_features)} valid feature(s)")
+        print(
+            f"{source}: {diagnostics['raw_alert_count']} raw alert(s), "
+            f"{diagnostics['coord_gis_count']} coordGis geometries, "
+            f"{len(source_features)} valid feature(s)"
+        )
 
-    write_outputs(features, run_date, scraped_at_utc)
+    metadata = build_metadata(
+        generated_at_utc=scraped_at_utc,
+        features=features,
+        raw_alert_count=raw_alert_count,
+        coord_gis_count=coord_gis_count,
+        source_diagnostics=source_diagnostics,
+    )
+
+    write_outputs(features, run_date, scraped_at_utc, metadata)
     print(f"Total valid features: {len(features)}")
     return 0
 
@@ -75,9 +97,36 @@ def download_xml(url: str) -> bytes:
     return response.content
 
 
-def write_outputs(features: list[dict], run_date: str, generated_at_utc: str) -> None:
+def build_metadata(
+    generated_at_utc: str,
+    features: list[dict],
+    raw_alert_count: int,
+    coord_gis_count: int,
+    source_diagnostics: dict[str, dict],
+) -> dict:
+    alerts_found_raw = raw_alert_count > 0
+    reason = None
+
+    if alerts_found_raw and coord_gis_count == 0:
+        reason = "XML contains alerts but no coordGis geometry was found"
+    elif alerts_found_raw and not features:
+        reason = "XML contains alerts and coordGis geometry, but no valid GeoJSON features could be generated"
+
+    return {
+        "generated_at_utc": generated_at_utc,
+        "alerts_found_raw": alerts_found_raw,
+        "raw_alert_count": raw_alert_count,
+        "coord_gis_count": coord_gis_count,
+        "features_with_geometry": len(features),
+        "reason": reason,
+        "sources": source_diagnostics,
+    }
+
+
+def write_outputs(features: list[dict], run_date: str, generated_at_utc: str, metadata: dict) -> None:
     latest_geojson = {
         "type": "FeatureCollection",
+        "metadata": metadata,
         "features": features,
     }
 
@@ -108,6 +157,7 @@ def write_outputs(features: list[dict], run_date: str, generated_at_utc: str) ->
         {
             "generated_at_utc": generated_at_utc,
             "latest_file": "latest.geojson",
+            **metadata,
             "dates": dates,
             "files": files,
         },

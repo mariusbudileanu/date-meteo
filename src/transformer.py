@@ -84,7 +84,7 @@ def features_from_xml(xml_bytes: bytes, source: str, scraped_at_utc: str) -> tup
     features: list[dict[str, Any]] = []
     warnings: list[str] = []
 
-    for index, alert_element in enumerate(iter_alert_elements(root), start=1):
+    for index, alert_element in enumerate(iter_geometry_elements(root), start=1):
         try:
             features.append(feature_from_alert_element(alert_element, source, scraped_at_utc))
         except ValueError as exc:
@@ -93,31 +93,35 @@ def features_from_xml(xml_bytes: bytes, source: str, scraped_at_utc: str) -> tup
     return features, warnings
 
 
-def iter_alert_elements(root: etree._Element) -> list[etree._Element]:
-    coord_nodes = [
-        element
-        for element in root.iter()
-        if normalized_name(element.tag) in FIELD_ALIASES["coord_gis"]
-    ]
-    if not coord_nodes:
-        return []
+def xml_diagnostics(xml_bytes: bytes) -> dict[str, int]:
+    root = parse_xml(xml_bytes)
+    raw_alert_count = 0
+    coord_gis_count = 0
 
+    for element in root.iter():
+        name = normalized_name(element.tag)
+        if name in {"avertizare", "avertizarenowcasting", "alert", "warning"}:
+            raw_alert_count += 1
+        if element_has_field(element, "coord_gis"):
+            coord_gis_count += 1
+
+    return {
+        "raw_alert_count": raw_alert_count,
+        "coord_gis_count": coord_gis_count,
+    }
+
+
+def iter_geometry_elements(root: etree._Element) -> list[etree._Element]:
     selected: list[etree._Element] = []
     seen: set[int] = set()
 
-    for coord_node in coord_nodes:
-        chosen = coord_node.getparent() or coord_node
-        cursor = chosen
-        while cursor is not None:
-            score = field_score(cursor)
-            if (cursor is not root and score >= 2) or (len(coord_nodes) == 1 and score >= 2):
-                chosen = cursor
-                break
-            cursor = cursor.getparent()
+    for element in root.iter():
+        if not element_has_field(element, "coord_gis"):
+            continue
 
-        marker = id(chosen)
+        marker = id(element)
         if marker not in seen:
-            selected.append(chosen)
+            selected.append(element)
             seen.add(marker)
 
     return selected
@@ -128,23 +132,27 @@ def feature_from_alert_element(
     source: str,
     scraped_at_utc: str,
 ) -> dict[str, Any]:
-    coord_gis = extract_field(alert_element, "coord_gis")
+    coord_gis = extract_own_field(alert_element, "coord_gis")
     if not coord_gis:
         raise ValueError("missing coordGis")
 
     geometry = geojson_geometry_from_coord_gis(coord_gis)
-    color_code, color_name = normalize_color(extract_field(alert_element, "culoare"))
+    color_code, color_name = normalize_color(extract_context_field(alert_element, "culoare"))
 
     properties = {
         "source": source,
         "tip": source,
-        "data_aparitiei": extract_field(alert_element, "data_aparitiei") or "",
-        "data_expirarii": extract_field(alert_element, "data_expirarii") or "",
+        "data_aparitiei": extract_context_field(alert_element, "data_aparitiei") or "",
+        "data_expirarii": extract_context_field(alert_element, "data_expirarii") or "",
         "culoare": color_code,
         "cod": color_name,
-        "mesaj": extract_field(alert_element, "mesaj", keep_markup=True) or "",
+        "mesaj": extract_context_field(alert_element, "mesaj", keep_markup=True) or "",
         "scraped_at_utc": scraped_at_utc,
     }
+
+    area_code = extract_own_attribute(alert_element, "cod")
+    if area_code:
+        properties["area_code"] = area_code
 
     return {
         "type": "Feature",
@@ -154,23 +162,58 @@ def feature_from_alert_element(
 
 
 def extract_field(alert_element: etree._Element, field_name: str, keep_markup: bool = False) -> str | None:
-    aliases = FIELD_ALIASES[field_name]
+    value = extract_own_field(alert_element, field_name, keep_markup)
+    if value:
+        return value
 
-    for element in alert_element.iter():
-        for attribute_name, attribute_value in element.attrib.items():
-            if normalized_name(attribute_name) in aliases:
-                return clean_text(attribute_value)
-
-        if normalized_name(element.tag) in aliases:
-            if keep_markup:
-                return clean_text(inner_markup(element))
-            return clean_text("".join(element.itertext()))
+    for element in alert_element.iterdescendants():
+        value = extract_own_field(element, field_name, keep_markup)
+        if value:
+            return value
 
     return None
 
 
-def field_score(element: etree._Element) -> int:
-    return sum(1 for field_name in FIELD_ALIASES if extract_field(element, field_name))
+def extract_context_field(alert_element: etree._Element, field_name: str, keep_markup: bool = False) -> str | None:
+    value = extract_field(alert_element, field_name, keep_markup)
+    if value:
+        return value
+
+    cursor = alert_element.getparent()
+    while cursor is not None:
+        value = extract_own_field(cursor, field_name, keep_markup)
+        if value:
+            return value
+        cursor = cursor.getparent()
+
+    return None
+
+
+def extract_own_field(element: etree._Element, field_name: str, keep_markup: bool = False) -> str | None:
+    aliases = FIELD_ALIASES[field_name]
+
+    for attribute_name, attribute_value in element.attrib.items():
+        if normalized_name(attribute_name) in aliases:
+            return clean_text(attribute_value)
+
+    if normalized_name(element.tag) in aliases:
+        if keep_markup:
+            return clean_text(inner_markup(element))
+        return clean_text("".join(element.itertext()))
+
+    return None
+
+
+def extract_own_attribute(element: etree._Element, attribute_name: str) -> str | None:
+    target = normalized_name(attribute_name)
+    for current_name, current_value in element.attrib.items():
+        if normalized_name(current_name) == target:
+            return clean_text(current_value)
+    return None
+
+
+def element_has_field(element: etree._Element, field_name: str) -> bool:
+    return extract_own_field(element, field_name) is not None
 
 
 def geojson_geometry_from_coord_gis(coord_gis: str) -> dict[str, Any]:

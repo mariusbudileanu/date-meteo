@@ -6,8 +6,11 @@ const COLOR_STYLES = {
 };
 
 const EMPTY_MESSAGE = "Nu au fost emise avertizări în această dată.";
+const MISSING_GEOMETRY_MESSAGE =
+  "Există avertizări ANM, dar fluxul XML curent nu conține geometrii GIS parsabile.";
 const statusElement = document.getElementById("status");
 const datePicker = document.getElementById("alert-date-picker");
+let dataIndex = { dates: [], files: [] };
 
 const map = L.map("map").setView([45.9432, 24.9668], 7);
 
@@ -30,7 +33,7 @@ async function start() {
   datePicker.value = todayIso();
   datePicker.addEventListener("change", () => loadDate(datePicker.value));
 
-  await loadIndex();
+  dataIndex = await loadIndex();
   await loadDate(datePicker.value);
 }
 
@@ -68,7 +71,7 @@ async function loadDate(dateValue) {
     const features = Array.isArray(data.features) ? data.features : [];
 
     if (features.length === 0) {
-      statusElement.textContent = EMPTY_MESSAGE;
+      statusElement.textContent = emptyMessageFor(data.metadata);
       map.setView([45.9432, 24.9668], 7);
       return;
     }
@@ -82,9 +85,19 @@ async function loadDate(dateValue) {
     statusElement.textContent = `${features.length} avertizare${features.length === 1 ? "" : "i"} pentru ${dateValue}`;
   } catch (error) {
     console.warn(`GeoJSON for ${dateValue} could not be loaded`, error);
-    statusElement.textContent = EMPTY_MESSAGE;
+    statusElement.textContent = emptyMessageFor(dataIndex);
     map.setView([45.9432, 24.9668], 7);
   }
+}
+
+function emptyMessageFor(metadata) {
+  if (metadata?.alerts_found_raw && metadata?.features_with_geometry === 0) {
+    return metadata.reason === "XML contains alerts but no coordGis geometry was found"
+      ? MISSING_GEOMETRY_MESSAGE
+      : metadata.reason || EMPTY_MESSAGE;
+  }
+
+  return EMPTY_MESSAGE;
 }
 
 function styleFeature(feature) {
