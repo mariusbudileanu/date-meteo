@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=2026-06-29-dashboard3e">
+    <link rel="stylesheet" href="css/style.css?v=2026-06-29-dashboard4">
   </head>
   <body>
     <header class="app-header dashboard-header">
       <div class="brand-block">
         <h1>MeteoAlertRO</h1>
         <p class="header-subtitle">Avertizări meteo ANM pe hartă</p>
-        <p class="header-meta">Date oficiale meteoromania.ro · proiect personal de arhivare în timp real</p>
+        <p class="header-meta">Date oficiale <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a> · arhivare și monitorizare în timp real</p>
         <p id="last-updated" class="last-updated">Ultima actualizare: se încarcă...</p>
       </div>
     </header>
@@ -65,14 +65,32 @@
               <option value="alert">Pe avertizare ANM</option>
             </select>
           </label>
+
+          <label class="toggle-control" for="nowcasting-toggle">
+            <input type="checkbox" id="nowcasting-toggle">
+            <span>Afișează nowcasting</span>
+          </label>
+
+          <label class="toggle-control" for="overlap-filter">
+            <input type="checkbox" id="overlap-filter">
+            <span>Doar județe cu alerte multiple</span>
+          </label>
+
+          <button type="button" class="secondary-button reset-button" id="reset-filters-button">Reset filtre</button>
         </div>
       </section>
 
       <section class="map-section" aria-label="Hartă și detalii avertizări">
-        <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
+        <div class="map-stage">
+          <div class="visible-alerts-strip" aria-live="polite">
+            <span>Alerte afișate pe hartă:</span>
+            <div id="visible-alert-chips" class="visible-alert-chips">Nu există alerte afișate.</div>
+          </div>
+          <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
+        </div>
         <aside class="detail-panel" aria-labelledby="selected-feature-title">
           <h2 id="selected-feature-title">Județ selectat</h2>
-          <div id="feature-details" class="feature-details empty-state">Selectează un județ colorat pentru detalii.</div>
+          <div id="feature-details" class="feature-details empty-state">Selectează un județ de pe hartă pentru detalii despre avertizările active.</div>
         </aside>
       </section>
 
@@ -144,6 +162,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=2026-06-29-dashboard3e"></script>
+    <script src="js/app.js?v=2026-06-29-dashboard4"></script>
   </body>
 </html>

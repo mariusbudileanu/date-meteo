@@ -35,6 +35,10 @@ const sourceFilter = document.getElementById("source-filter");
 const phenomenonFilter = document.getElementById("phenomenon-filter");
 const severityFilter = document.getElementById("severity-filter");
 const mapModeSelect = document.getElementById("map-mode");
+const nowcastingToggle = document.getElementById("nowcasting-toggle");
+const overlapFilter = document.getElementById("overlap-filter");
+const resetFiltersButton = document.getElementById("reset-filters-button");
+const visibleAlertChipsElement = document.getElementById("visible-alert-chips");
 const featureDetailsElement = document.getElementById("feature-details");
 const alertsSummaryElement = document.getElementById("alerts-summary");
 const nowcastingSection = document.getElementById("nowcasting-section");
@@ -57,6 +61,11 @@ let currentRecords = [];
 let currentIndexes = emptyIndexes();
 let visibleAlertIds = new Set();
 let selectedCountyKey = "";
+let selectedCounty = "";
+let selectedPhenomenon = "all";
+let selectedSeverity = "all";
+let mapMode = "max";
+let showOnlyOverlaps = false;
 
 const map = L.map("alerts-map", { center: ROMANIA_CENTER, zoom: 7, minZoom: 5, maxZoom: 12 });
 
@@ -85,10 +94,19 @@ async function start() {
   renderEmptyDashboard(initialDate || todayIso(), "Se încarcă avertizările...");
 
   latestButton?.addEventListener("click", () => loadLatestAlerts());
-  sourceFilter?.addEventListener("change", () => updateDashboard());
+  sourceFilter?.addEventListener("change", () => {
+    if (nowcastingToggle) nowcastingToggle.checked = sourceFilter.value === "all";
+    updateDashboard();
+  });
+  nowcastingToggle?.addEventListener("change", () => {
+    if (sourceFilter) sourceFilter.value = nowcastingToggle.checked ? "all" : "general";
+    updateDashboard();
+  });
   phenomenonFilter?.addEventListener("change", () => updateDashboard());
   severityFilter?.addEventListener("change", () => updateDashboard());
   mapModeSelect?.addEventListener("change", () => updateDashboard());
+  overlapFilter?.addEventListener("change", () => updateDashboard());
+  resetFiltersButton?.addEventListener("click", () => resetDashboardFilters());
   countySelector?.addEventListener("change", () => renderCountyHistory(countySelector.value));
 
   await Promise.all([loadBaseCounties(), loadHistoryStats(), renderDownloads()]);
@@ -161,22 +179,52 @@ function renderAlertData(data, dateLabel, resetVisibility) {
 
   selectedDate = currentDateLabel;
   selectedCountyKey = "";
+  selectedCounty = "";
   setCalendarView(selectedDate);
   renderCalendar();
   updateDashboard();
 }
 
+function syncControlState() {
+  selectedPhenomenon = phenomenonFilter?.value || "all";
+  selectedSeverity = severityFilter?.value || "all";
+  mapMode = mapModeSelect?.value || "max";
+  showOnlyOverlaps = Boolean(overlapFilter?.checked);
+  selectedCounty = selectedCountyKey;
+}
+
+function nowcastingEnabled() {
+  return sourceFilter?.value === "all" && Boolean(nowcastingToggle?.checked);
+}
+
+function resetDashboardFilters() {
+  if (sourceFilter) sourceFilter.value = "general";
+  if (nowcastingToggle) nowcastingToggle.checked = false;
+  if (phenomenonFilter) phenomenonFilter.value = "all";
+  if (severityFilter) severityFilter.value = "all";
+  if (mapModeSelect) mapModeSelect.value = "max";
+  if (overlapFilter) overlapFilter.checked = false;
+  visibleAlertIds = new Set(currentRecords.map((record) => record.alert_id).filter(Boolean));
+  selectedCountyKey = "";
+  selectedCounty = "";
+  updateDashboard();
+}
+
 function updateDashboard() {
+  syncControlState();
   const visibleFeatures = getVisibleFeatures({ respectVisibleAlertIds: true });
   const cardFeatures = getVisibleFeatures({ respectVisibleAlertIds: false });
+  const visibleRecords = recordsMatchingFeatures(visibleFeatures);
   const cardRecords = recordsMatchingFeatures(cardFeatures);
   const nowcastingFeatures = cardFeatures.filter(isNowcastingFeature);
 
   renderDaySummary(visibleFeatures, selectedDate);
   renderStatus(visibleFeatures, selectedDate);
   renderMap(visibleFeatures);
+  renderVisibleAlertChips(visibleRecords);
   renderAlertsSummary(cardRecords);
   renderNowcastingSection(nowcastingFeatures);
+  updateLegendActiveState();
 
   if (selectedCountyKey) {
     const countyFeatures = visibleFeatures.filter((feature) => countyKey(feature) === selectedCountyKey);
@@ -210,9 +258,12 @@ function publishDebugState(visibleFeatures, cardRecords) {
   const debugState = {
     date: currentDateLabel,
     source: sourceFilter?.value || "general",
-    phenomenon: phenomenonFilter?.value || "all",
-    severity: severityFilter?.value || "all",
-    mode: mapModeSelect?.value || "max",
+    nowcastingEnabled: nowcastingEnabled(),
+    phenomenon: selectedPhenomenon,
+    severity: selectedSeverity,
+    mode: mapMode,
+    showOnlyOverlaps,
+    selectedCounty,
     visibleAlertIds: [...visibleAlertIds],
     alertIds: currentRecords.map((record) => record.alert_id),
     cardAlertIds: cardRecords.map((record) => record.alert_id),
@@ -270,6 +321,7 @@ function renderEmptyDay(dateString) {
   currentIndexes = emptyIndexes();
   visibleAlertIds = new Set();
   selectedCountyKey = "";
+  selectedCounty = "";
   selectedDate = dateString;
   setCalendarView(dateString);
   renderCalendar();
@@ -283,21 +335,32 @@ function renderEmptyDashboard(dateString, message) {
   renderSelectedEmpty(message === NO_ALERTS_MESSAGE ? "Nu există avertizări pentru data selectată." : "Selectează un județ colorat pentru detalii.");
   alertsSummaryElement.classList.add("empty-state");
   alertsSummaryElement.innerHTML = message;
+  renderVisibleAlertChips([]);
   renderNowcastingSection([]);
   setStatus(message);
   publishDebugState([], []);
 }
 
 function getVisibleFeatures({ respectVisibleAlertIds }) {
-  return currentFeatures.filter((feature) => {
+  const sourceAllowsNowcasting = nowcastingEnabled();
+  const filtered = currentFeatures.filter((feature) => {
     const props = feature.properties || {};
     const alertId = props.alert_id || "";
-    const sourceOk = sourceFilter?.value === "all" || !isNowcastingFeature(feature);
-    const phenomenonOk = phenomenonFilter?.value === "all" || normalizePhenomenon(feature) === phenomenonFilter?.value;
-    const severityOk = severityFilter?.value === "all" || String(safeNumber(props.cod_culoare, 0)) === severityFilter?.value;
+    const sourceOk = sourceAllowsNowcasting || !isNowcastingFeature(feature);
+    const phenomenonOk = selectedPhenomenon === "all" || normalizePhenomenon(feature) === selectedPhenomenon;
+    const severityOk = selectedSeverity === "all" || String(safeNumber(props.cod_culoare, 0)) === selectedSeverity;
     const alertOk = !respectVisibleAlertIds || !alertId || visibleAlertIds.has(alertId);
     return sourceOk && phenomenonOk && severityOk && alertOk;
   });
+
+  if (!showOnlyOverlaps) return filtered;
+
+  const overlapCountyKeys = new Set(
+    aggregateFeaturesByCounty(filtered)
+      .filter((feature) => safeNumber(feature.properties?.alert_count, 0) > 1)
+      .map((feature) => feature.properties?.county_key)
+  );
+  return filtered.filter((feature) => overlapCountyKeys.has(countyKey(feature)));
 }
 
 function renderDaySummary(features, dateLabel) {
@@ -413,6 +476,7 @@ function onEachAggregateFeature(feature, layer) {
   const props = feature.properties || {};
   const code = safeNumber(props.max_code, 0);
   const count = safeNumber(props.alert_count, 0);
+  const phenomena = activePhenomenaLabels(props.features || []);
   layer.once("add", () => {
     const element = layer.getElement?.();
     if (!element) return;
@@ -425,11 +489,14 @@ function onEachAggregateFeature(feature, layer) {
         <strong>${escapeHtml(props.county_name || "Zonă afectată")}</strong>
         <span>${escapeHtml(pluralActiveAlerts(count))}</span>
         <span>Cod maxim: ${escapeHtml(COD_NAME[code] || "-")}</span>
+        <span>Fenomene: ${escapeHtml(phenomena || "-")}</span>
+        <span>Click pentru detalii</span>
       </div>
   `);
   layer.on({
     click: () => {
       selectedCountyKey = props.county_key || "";
+      selectedCounty = selectedCountyKey;
       renderCountyPanel(props.features || []);
     },
     mouseover: () => layer.setStyle({ weight: props.has_overlap ? 4.4 : 2.6, fillOpacity: 0.72 }),
@@ -437,7 +504,7 @@ function onEachAggregateFeature(feature, layer) {
   });
 }
 
-function renderSelectedEmpty(message = "Selectează un județ colorat pentru detalii.") {
+function renderSelectedEmpty(message = "Selectează un județ de pe hartă pentru detalii despre avertizările active.") {
   featureDetailsElement.classList.add("empty-state");
   featureDetailsElement.innerHTML = escapeHtml(message);
 }
@@ -504,6 +571,27 @@ function renderAlertsSummary(records) {
   attachAlertCardEvents();
 }
 
+function renderVisibleAlertChips(records) {
+  if (!visibleAlertChipsElement) return;
+  const visibleRecords = records.filter((record) => visibleAlertIds.has(record.alert_id));
+  if (!visibleRecords.length) {
+    visibleAlertChipsElement.innerHTML = `<span class="empty-chip">Nu există alerte afișate.</span>`;
+    return;
+  }
+  visibleAlertChipsElement.innerHTML = visibleRecords
+    .map((record) => alertChipHtml(record))
+    .join("");
+}
+
+function alertChipHtml(record) {
+  const max = safeNumber(record.cod_culoare_max, 0);
+  return `
+    <span class="visible-alert-chip lvl-${max}">
+      Cod ${escapeHtml(String(COD_NAME[max] || "-").toLowerCase())} · ${escapeHtml(recordPrimaryPhenomenon(record))}
+    </span>
+  `;
+}
+
 function renderNowcastingSection(features) {
   if (!nowcastingSection || !nowcastingSummaryElement) return;
   const records = recordsMatchingFeatures(features).filter(isNowcastingRecord);
@@ -543,6 +631,7 @@ function alertCardHtml(record) {
         <div><span class="field-label">Fenomen</span><strong>${escapeHtml(phenomenon)}</strong></div>
         <div><span class="field-label">Interval</span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</div>
         <div><span class="field-label">Zone afectate</span>${escapeHtml(pluralZones(safeNumber(record.judete_count, 0)))}</div>
+        <div><span class="field-label">Sursa</span>${escapeHtml(sourceLabel(record.source))}</div>
         <div><span class="field-label">Coduri prezente</span>${presentCodesHtml(record)}</div>
         <div class="span-2"><span class="field-label">Fenomene pe cod</span>${phenomenaListHtml(record.fenomene_pe_cod)}</div>
       </div>
@@ -681,13 +770,20 @@ function applyDemoOverlap(data) {
   const clone = JSON.parse(JSON.stringify(data));
   const features = Array.isArray(clone.features) ? clone.features : [];
   const cluj = features.find((feature) => feature.properties?.judet_cod === "CJ" && !isNowcastingFeature(feature));
-  if (!cluj || features.some((feature) => feature.properties?.alert_id === "demo-overlap-rain")) return clone;
+  if (!cluj || features.some((feature) => feature.properties?.alert_id === "demo_rain_yellow")) return clone;
+
+  cluj.properties.alert_id = "demo_heat_red";
+  cluj.properties.cod_culoare = 3;
+  cluj.properties.cod_culoare_nume = "Roșu";
+  cluj.properties.fenomen_principal = "caniculă severă";
+  cluj.properties.interval_text = cluj.properties.interval_text || "interval demo";
+  cluj.properties.source = "general";
 
   const rain = JSON.parse(JSON.stringify(cluj));
-  rain.properties.alert_id = "demo-overlap-rain";
+  rain.properties.alert_id = "demo_rain_yellow";
   rain.properties.cod_culoare = 1;
   rain.properties.cod_culoare_nume = "Galben";
-  rain.properties.fenomen_principal = "ploi abundente";
+  rain.properties.fenomen_principal = "ploi / instabilitate";
   rain.properties.interval_text = cluj.properties.interval_text || "interval demo";
   rain.properties.source = "general";
   features.push(rain);
@@ -697,19 +793,34 @@ function applyDemoOverlap(data) {
   clone.metadata.demo_overlap = true;
   clone.metadata.active_alerts = Array.isArray(clone.metadata.active_alerts) ? clone.metadata.active_alerts : [];
   clone.metadata.active_alerts.push({
-    alert_id: "demo-overlap-rain",
+    alert_id: "demo_heat_red",
+    source: "general",
+    interval_text: cluj.properties.interval_text,
+    interval_start: cluj.properties.interval_start,
+    interval_end: cluj.properties.interval_end,
+    durata_ore: cluj.properties.durata_ore,
+    cod_culoare_max: 3,
+    fenomene_pe_cod: { 3: "caniculă severă" },
+    judete_afectate: ["CJ"],
+    judete_count: 1,
+    judete_culori: { CJ: 3 },
+    color_counts: { 3: 1 },
+    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor: cod roșu de caniculă severă.</p>",
+  });
+  clone.metadata.active_alerts.push({
+    alert_id: "demo_rain_yellow",
     source: "general",
     interval_text: rain.properties.interval_text,
     interval_start: rain.properties.interval_start,
     interval_end: rain.properties.interval_end,
     durata_ore: rain.properties.durata_ore,
     cod_culoare_max: 1,
-    fenomene_pe_cod: { 1: "ploi abundente" },
+    fenomene_pe_cod: { 1: "ploi / instabilitate" },
     judete_afectate: ["CJ"],
     judete_count: 1,
     judete_culori: { CJ: 1 },
     color_counts: { 1: 1 },
-    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor.</p>",
+    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor: cod galben de ploi și instabilitate.</p>",
   });
   clone.metadata.alert_count = countDistinctAlerts(features);
   clone.metadata.feature_count = features.length;
@@ -860,7 +971,7 @@ function addLegend() {
         <span>${COD_NAME[code]}</span>
       </button>
     `).join("");
-    container.innerHTML = `<div class="legend-title">Filtru cod</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate</span></button>${rows}`;
+    container.innerHTML = `<div class="legend-title">Filtru cod</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
     setTimeout(() => {
       container.querySelectorAll(".legend-filter").forEach((button) => {
         button.addEventListener("click", () => {
@@ -868,10 +979,18 @@ function addLegend() {
           updateDashboard();
         });
       });
+      updateLegendActiveState();
     }, 0);
     return container;
   };
   legend.addTo(map);
+}
+
+function updateLegendActiveState() {
+  const active = selectedSeverity || "all";
+  document.querySelectorAll(".legend-filter").forEach((button) => {
+    button.classList.toggle("active", (button.dataset.severity || "all") === active);
+  });
 }
 
 function refitMapToCurrentLayer() {
