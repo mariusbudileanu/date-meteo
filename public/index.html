@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=daily-archive-20260629">
+    <link rel="stylesheet" href="css/style.css?v=2026-06-29">
   </head>
   <body>
     <header class="app-header">
@@ -14,11 +14,11 @@
         <p id="status" role="status" aria-live="polite">Se încarcă...</p>
       </div>
       <div class="header-actions">
-        <button type="button" id="latest-alerts-button" class="secondary-button">Ultimele alerte</button>
-        <label class="date-control" for="alert-date-picker">
-          <span>Data</span>
-          <input type="date" id="alert-date-picker">
+        <label class="nowcasting-toggle">
+          <input type="checkbox" id="toggle-nowcasting">
+          <span>Afișează nowcasting</span>
         </label>
+        <button type="button" class="secondary-button" id="latest-alerts-button">Ultimele alerte</button>
       </div>
     </header>
 
@@ -26,14 +26,14 @@
       <section class="calendar-section" aria-labelledby="calendar-title">
         <div class="section-heading">
           <h2 id="calendar-title">Calendar avertizări</h2>
-          <div class="calendar-key" aria-label="Legendă coduri">
+          <div class="calendar-key" aria-hidden="true">
             <span class="cod cod-0">Verde</span>
             <span class="cod cod-1">Galben</span>
             <span class="cod cod-2">Portocaliu</span>
             <span class="cod cod-3">Roșu</span>
           </div>
         </div>
-        <div id="calendar" class="calendar" aria-label="Calendar avertizări"></div>
+        <div id="calendar" class="calendar" aria-label="Calendar avertizări meteo"></div>
       </section>
 
       <section class="map-section" aria-label="Hartă și detalii avertizări">
@@ -53,28 +53,28 @@
         <div class="section-heading">
           <h2 id="history-title">Istoric pe județ</h2>
           <label class="county-control" for="county-selector">
-            <span>Județ / zonă</span>
+            <span>Județ</span>
             <select id="county-selector"></select>
           </label>
         </div>
-        <div id="county-history" class="county-history empty-state">Nu există statistici încărcate.</div>
+        <div id="county-history" class="empty-state">Nu există statistici încărcate.</div>
       </section>
 
       <section class="downloads-section" aria-labelledby="downloads-title">
-        <h2 id="downloads-title">Descărcări</h2>
+        <h2 id="downloads-title">Descărcări — arhivă lunară</h2>
         <div class="downloads-table-wrap">
           <table class="downloads-table">
             <thead>
               <tr>
-                <th>Luna</th>
-                <th>Avertizări</th>
+                <th>Lună</th>
+                <th>Alerte</th>
                 <th>Interval</th>
-                <th>Cod maxim</th>
+                <th>Cod max</th>
                 <th>CSV</th>
               </tr>
             </thead>
             <tbody id="downloads-table-body">
-              <tr><td colspan="5">Nu există arhivă încărcată.</td></tr>
+              <tr><td colspan="5">Se încarcă...</td></tr>
             </tbody>
           </table>
         </div>
@@ -87,6 +87,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=daily-archive-20260629"></script>
+    <script src="js/app.js?v=2026-06-29"></script>
   </body>
 </html>

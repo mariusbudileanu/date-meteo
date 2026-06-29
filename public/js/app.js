@@ -6,25 +6,14 @@ const ROMANIA_BOUNDS = [
 
 const NO_ALERTS_MESSAGE = "Nu există avertizări înregistrate pentru această dată.";
 const EMPTY_MESSAGE = "Nu au fost emise sau valabile avertizări pentru această dată.";
-const MISSING_GEOMETRY_MESSAGE =
-  "Există avertizări ANM, dar fluxul XML curent nu conține geometrii GIS parsabile.";
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
-const COD_COLOR = {
-  0: "#34D399",
-  1: "#FACC15",
-  2: "#FB923C",
-  3: "#F43F5E",
-};
-const COD_NAME = {
-  0: "Verde",
-  1: "Galben",
-  2: "Portocaliu",
-  3: "Roșu",
-};
+const COD_COLOR = { 0: "#34D399", 1: "#FACC15", 2: "#FB923C", 3: "#F43F5E" };
+const COD_NAME = { 0: "Verde", 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
 
 const statusElement = document.getElementById("status");
-const datePicker = document.getElementById("alert-date-picker");
+const datePicker = document.getElementById("alert-date-picker"); // optional (poate lipsi)
 const latestButton = document.getElementById("latest-alerts-button");
+const nowcastingToggle = document.getElementById("toggle-nowcasting");
 const calendarElement = document.getElementById("calendar");
 const featureDetailsElement = document.getElementById("feature-details");
 const alertsSummaryElement = document.getElementById("alerts-summary");
@@ -35,17 +24,16 @@ const downloadsTableBody = document.getElementById("downloads-table-body");
 let dataIndex = { dates: {}, files: [] };
 let historyStats = { counties: [] };
 let alertsLayer = null;
+let nowcastingLayer = null;
 let baseCountyLayer = null;
 let selectedDate = "";
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
+let showNowcasting = false;
+let currentData = null;
+let currentDateLabel = "";
 
-const map = L.map("alerts-map", {
-  center: ROMANIA_CENTER,
-  zoom: 7,
-  minZoom: 5,
-  maxZoom: 12,
-});
+const map = L.map("alerts-map", { center: ROMANIA_CENTER, zoom: 7, minZoom: 5, maxZoom: 12 });
 
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
   attribution: "© OpenStreetMap, © CARTO",
@@ -53,34 +41,35 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
   maxZoom: 19,
 }).addTo(map);
 
-map.fitBounds(ROMANIA_BOUNDS, {
-  padding: [20, 20],
-});
-
-setTimeout(() => {
-  map.invalidateSize(true);
-  debugLeafletCss();
-}, 500);
-
-setTimeout(() => {
-  map.invalidateSize(true);
-  debugLeafletCss();
-}, 1500);
+map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+setTimeout(() => map.invalidateSize(true), 500);
+setTimeout(() => map.invalidateSize(true), 1500);
 
 addLegend();
 start();
+
+function setDatePicker(value) {
+  if (datePicker) datePicker.value = value;
+}
 
 async function start() {
   dataIndex = await loadIndex();
   const initialDate = dataIndex.latest_date || preferredInitialDate();
   selectedDate = initialDate;
-  datePicker.value = initialDate || todayIso();
+  setDatePicker(initialDate || todayIso());
   setCalendarView(initialDate || todayIso());
   renderCalendar();
 
-  datePicker.addEventListener("change", () => showDate(datePicker.value));
-  latestButton.addEventListener("click", () => loadLatestAlerts());
-  countySelector.addEventListener("change", () => renderCountyHistory(countySelector.value));
+  if (datePicker) datePicker.addEventListener("change", () => showDate(datePicker.value));
+  if (latestButton) latestButton.addEventListener("click", () => loadLatestAlerts());
+  if (countySelector) countySelector.addEventListener("change", () => renderCountyHistory(countySelector.value));
+  if (nowcastingToggle) {
+    showNowcasting = nowcastingToggle.checked;
+    nowcastingToggle.addEventListener("change", () => {
+      showNowcasting = nowcastingToggle.checked;
+      if (currentData) renderAlertData(currentData, currentDateLabel);
+    });
+  }
 
   await Promise.all([loadBaseCounties(), loadHistoryStats(), renderDownloads()]);
   await loadLatestAlerts();
@@ -89,9 +78,7 @@ async function start() {
 async function loadIndex() {
   try {
     const response = await fetch("data/index.json", { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const index = await response.json();
     if (Array.isArray(index.dates)) {
       index.dates = Object.fromEntries(index.dates.map((date) => [date, { file: `${date}.geojson` }]));
@@ -105,7 +92,6 @@ async function loadIndex() {
 
 async function loadLatestAlerts() {
   setStatus("Se încarcă...");
-
   try {
     const data = await fetchJson("data/latest.geojson");
     const dateLabel = data.metadata?.latest_for_date || data.metadata?.date || dataIndex.latest_date || selectedDate;
@@ -123,7 +109,7 @@ async function showDate(dateString) {
   }
 
   selectedDate = dateString;
-  datePicker.value = dateString;
+  setDatePicker(dateString);
   setCalendarView(dateString);
   renderCalendar();
 
@@ -134,7 +120,6 @@ async function showDate(dateString) {
 
   setStatus("Se încarcă...");
   const file = dataIndex.dates?.[dateString]?.file || `${dateString}.geojson`;
-
   try {
     const data = await fetchJson(`data/${file}`);
     renderAlertData(data, dateString);
@@ -145,44 +130,58 @@ async function showDate(dateString) {
 }
 
 function renderAlertData(data, dateLabel) {
-  const features = Array.isArray(data.features) ? data.features : [];
+  currentData = data;
+  currentDateLabel = dateLabel;
+
+  const allFeatures = Array.isArray(data.features) ? data.features : [];
   const metadata = data.metadata || {};
   const effectiveDate = dateLabel || metadata.date || selectedDate || dataIndex.latest_date || todayIso();
   selectedDate = effectiveDate;
-  datePicker.value = effectiveDate;
+  setDatePicker(effectiveDate);
   setCalendarView(effectiveDate);
   renderCalendar();
 
   clearAlertsLayer();
   renderSelectedFeature(null);
 
-  if (features.length > 0) {
-    alertsLayer = L.geoJSON(data, {
+  const generalFeatures = allFeatures.filter((f) => (f.properties?.source || "general") !== "nowcasting");
+  const nowcastingFeatures = allFeatures.filter((f) => f.properties?.source === "nowcasting");
+
+  if (generalFeatures.length) {
+    alertsLayer = L.geoJSON({ type: "FeatureCollection", features: generalFeatures }, {
       style: getAlertStyle,
       onEachFeature: onEachAlertFeature,
     }).addTo(map);
-    refitMapToCurrentLayer();
-  } else {
-    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+  }
+  if (showNowcasting && nowcastingFeatures.length) {
+    nowcastingLayer = L.geoJSON({ type: "FeatureCollection", features: nowcastingFeatures }, {
+      style: getNowcastingStyle,
+      onEachFeature: onEachAlertFeature,
+    }).addTo(map);
   }
 
-  const message = emptyMessageFor(metadata || dataIndex);
-  if (features.length === 0 && !metadata.active_alerts?.length) {
-    renderNoAlerts(message, effectiveDate);
+  const hasGeneral = generalFeatures.length > 0;
+  const hasNowcasting = nowcastingFeatures.length > 0;
+
+  if (!hasGeneral && (!showNowcasting || !hasNowcasting)) {
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+    const ncCount = safeNumber(metadata.nowcasting_count, nowcastingFeatures.length);
+    const note = hasNowcasting
+      ? `${NO_ALERTS_MESSAGE} (există ${ncCount} avertizări nowcasting — activează afișarea)`
+      : emptyMessageFor(metadata);
+    setStatus(note);
+    renderAlertsSummary(metadata, []);
     return;
   }
 
-  renderStatus(metadata, features, effectiveDate);
-  renderAlertsSummary(metadata, features);
+  renderStatus(metadata, generalFeatures, effectiveDate);
+  renderAlertsSummary(metadata, generalFeatures);
 
-  requestAnimationFrame(() => {
-    refitMapToCurrentLayer();
-  });
-
+  requestAnimationFrame(() => refitMapToCurrentLayer());
   setTimeout(() => {
     map.invalidateSize(true);
     refitMapToCurrentLayer();
-  }, 1000);
+  }, 800);
 }
 
 function renderNoAlerts(message, dateLabel) {
@@ -194,8 +193,9 @@ function renderNoAlerts(message, dateLabel) {
 }
 
 function renderEmptyDay(dateString) {
+  currentData = null;
   selectedDate = dateString;
-  datePicker.value = dateString;
+  setDatePicker(dateString);
   setCalendarView(dateString);
   renderCalendar();
   renderNoAlerts(NO_ALERTS_MESSAGE, dateString);
@@ -204,7 +204,12 @@ function renderEmptyDay(dateString) {
 function renderStatus(metadata, features, dateLabel) {
   const alertCount = safeNumber(metadata?.alert_count, countDistinctAlerts(features));
   const featureCount = safeNumber(metadata?.feature_count, features.length);
-  setStatus(`${pluralAlerts(alertCount)} · ${pluralZones(featureCount)} pentru ${dateLabel}`);
+  let text = `${pluralAlerts(alertCount)} · ${pluralZones(featureCount)} pentru ${dateLabel}`;
+  const nowcasting = safeNumber(metadata?.nowcasting_count, 0);
+  if (nowcasting > 0 && !showNowcasting) {
+    text += ` · ${nowcasting} nowcasting (ascuns)`;
+  }
+  setStatus(text);
 }
 
 function renderSelectedFeature(feature) {
@@ -223,7 +228,7 @@ function renderSelectedFeature(feature) {
   featureDetailsElement.innerHTML = `
     <div class="selected-code">${codeChip(code)}</div>
     <dl class="detail-list">
-      ${detailRow("Județ / zonă", props.judet_cod || props.cod_judet || "")}
+      ${detailRow("Județ / zonă", props.judet_nume || props.judet_cod || "")}
       ${detailRow("Fenomen", phenomenon)}
       ${detailRow("Valabilitate", formatValidity(props))}
       ${detailRow("Durată", formatDuration(props))}
@@ -235,7 +240,8 @@ function renderSelectedFeature(feature) {
 
 function renderAlertsSummary(metadata, features) {
   const activeAlerts = Array.isArray(metadata?.active_alerts) ? metadata.active_alerts : [];
-  const groups = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
+  let groups = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
+  groups = groups.filter((g) => (g.source || "general") !== "nowcasting" || showNowcasting);
 
   if (!groups.length) {
     alertsSummaryElement.classList.add("empty-state");
@@ -258,7 +264,7 @@ function recordsFromFeatureGroups(features) {
         source: props.source || props.tip,
         interval_text: props.interval_text || props.intervalul,
         interval_start: props.interval_start,
-        interval_end: props.interval_end || props.data_expirarii,
+        interval_end: props.interval_end || props.data_expirare,
         durata_ore: props.durata_ore,
         cod_culoare_max: 0,
         fenomene_pe_cod: props.fenomene_pe_cod || {},
@@ -325,7 +331,7 @@ function onEachAlertFeature(feature, layer) {
   layer.bindPopup(`
     <div class="popup-code">${codeChip(code)}</div>
     <div class="popup-meta">
-      <strong>Județ / zonă:</strong> ${escapeHtml(props.judet_cod || props.cod_judet || "")}<br>
+      <strong>Județ / zonă:</strong> ${escapeHtml(props.judet_nume || props.judet_cod || "")}<br>
       <strong>Fenomen:</strong> ${escapeHtml(props.fenomen_principal || PHENOMENON_FALLBACK)}<br>
       <strong>Valabilitate:</strong> ${escapeHtml(formatValidity(props))}<br>
       <strong>Durată:</strong> ${escapeHtml(formatDuration(props))}<br>
@@ -337,9 +343,8 @@ function onEachAlertFeature(feature, layer) {
     click: () => renderSelectedFeature(feature),
     mouseover: () => layer.setStyle({ weight: 3, fillOpacity: 0.72 }),
     mouseout: () => {
-      if (alertsLayer) {
-        alertsLayer.resetStyle(layer);
-      }
+      const owner = props.source === "nowcasting" ? nowcastingLayer : alertsLayer;
+      if (owner) owner.resetStyle(layer);
     },
   });
 }
@@ -348,13 +353,7 @@ async function loadBaseCounties() {
   try {
     const data = await fetchJson("data/judete.geojson");
     baseCountyLayer = L.geoJSON(data, {
-      style: () => ({
-        color: "#34D399",
-        weight: 0.8,
-        opacity: 0.35,
-        fillColor: "#34D399",
-        fillOpacity: 0.07,
-      }),
+      style: () => ({ color: "#34D399", weight: 0.8, opacity: 0.35, fillColor: "#34D399", fillOpacity: 0.07 }),
       interactive: false,
     }).addTo(map);
     baseCountyLayer.bringToBack();
@@ -372,15 +371,16 @@ async function loadHistoryStats() {
   }
 
   const counties = Array.isArray(historyStats.counties) ? historyStats.counties : [];
-  if (!counties.length) {
-    countySelector.innerHTML = "";
-    countyHistoryElement.classList.add("empty-state");
-    countyHistoryElement.innerHTML = "Nu există statistici încărcate.";
+  if (!counties.length || !countySelector) {
+    if (countyHistoryElement) {
+      countyHistoryElement.classList.add("empty-state");
+      countyHistoryElement.innerHTML = "Nu există statistici încărcate.";
+    }
     return;
   }
 
   countySelector.innerHTML = counties
-    .map((county) => `<option value="${escapeHtml(county.judet_cod)}">${escapeHtml(county.judet_cod)}</option>`)
+    .map((county) => `<option value="${escapeHtml(county.judet_cod)}">${escapeHtml(county.judet_nume || county.judet_cod)}</option>`)
     .join("");
   renderCountyHistory(counties[0].judet_cod);
 }
@@ -398,18 +398,19 @@ function renderCountyHistory(countyCode) {
   countyHistoryElement.classList.remove("empty-state");
   countyHistoryElement.innerHTML = `
     <div class="history-stat">
-      <span>${escapeHtml(county.judet_cod)}</span>
+      <span>${escapeHtml(county.judet_nume || county.judet_cod)}</span>
       ${codeChip(county.max_color)}
     </div>
     <div class="history-grid">
       <div><strong>Avertizări arhivate:</strong> ${escapeHtml(county.alert_count)}</div>
       <div><strong>Ultima expirare:</strong> ${escapeHtml(formatAlertDateTime(county.last_alert_end) || "-")}</div>
-      <div><strong>Distribuție coduri:</strong> ${colorCountsHtml(county.color_counts)}</div>
+      <div class="span-2"><strong>Distribuție coduri:</strong> ${colorCountsHtml(county.color_counts)}</div>
     </div>
   `;
 }
 
 async function renderDownloads() {
+  if (!downloadsTableBody) return;
   try {
     const manifest = await fetchJson("istoric/index.json");
     const months = Array.isArray(manifest.months) ? manifest.months : [];
@@ -417,10 +418,8 @@ async function renderDownloads() {
       downloadsTableBody.innerHTML = `<tr><td colspan="5">Nu există arhivă disponibilă.</td></tr>`;
       return;
     }
-
     downloadsTableBody.innerHTML = months
-      .map(
-        (month) => `
+      .map((month) => `
           <tr>
             <td>${escapeHtml(month.month)}</td>
             <td>${escapeHtml(month.alert_count)}</td>
@@ -428,8 +427,7 @@ async function renderDownloads() {
             <td>${codeChip(month.max_color)}</td>
             <td><a href="${escapeHtml(month.path)}" download>Descarcă CSV</a></td>
           </tr>
-        `,
-      )
+        `)
       .join("");
   } catch (error) {
     console.warn("istoric/index.json could not be loaded", error);
@@ -454,11 +452,15 @@ function renderCalendar() {
     const iso = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const info = dataIndex.dates?.[iso];
     const code = safeNumber(info?.max_color, 0);
-    const codeClass = info ? `cod-${code}` : "no-data";
+    let codeClass;
+    if (!info) codeClass = "no-data";
+    else if (code > 0) codeClass = `cod-${code}`;
+    else if (info.has_nowcasting) codeClass = "has-nowcasting";
+    else codeClass = "cod-0";
     const futureClass = dataIndex.today && iso > dataIndex.today ? "future" : "";
     const selectedClass = iso === selectedDate ? "selected" : "";
     const title = info
-      ? `${info.alert_count} avertizări · ${info.feature_count} zone`
+      ? `${info.alert_count} avertizări · ${info.feature_count} zone${info.has_nowcasting ? ` · ${info.nowcasting_count} nowcasting` : ""}`
       : "fără date";
     cells += `
       <button type="button" class="cal-cell ${codeClass} ${futureClass} ${selectedClass}"
@@ -477,22 +479,14 @@ function renderCalendar() {
 
   document.getElementById("cal-prev").addEventListener("click", () => {
     viewMonth -= 1;
-    if (viewMonth < 0) {
-      viewMonth = 11;
-      viewYear -= 1;
-    }
+    if (viewMonth < 0) { viewMonth = 11; viewYear -= 1; }
     renderCalendar();
   });
-
   document.getElementById("cal-next").addEventListener("click", () => {
     viewMonth += 1;
-    if (viewMonth > 11) {
-      viewMonth = 0;
-      viewYear += 1;
-    }
+    if (viewMonth > 11) { viewMonth = 0; viewYear += 1; }
     renderCalendar();
   });
-
   calendarElement.querySelectorAll("[data-iso]").forEach((button) => {
     button.addEventListener("click", () => showDate(button.dataset.iso));
   });
@@ -500,52 +494,30 @@ function renderCalendar() {
 
 function setCalendarView(dateString) {
   const parsed = parseIsoDate(dateString);
-  if (!parsed) {
-    return;
-  }
+  if (!parsed) return;
   viewYear = parsed.getFullYear();
   viewMonth = parsed.getMonth();
 }
 
-function debugLeafletCss() {
-  const tile = document.querySelector(".leaflet-tile");
-  const mapPane = document.querySelector(".leaflet-map-pane");
-  const container = document.getElementById("alerts-map");
-  const debugInfo = {
-    containerWidth: container?.clientWidth,
-    containerHeight: container?.clientHeight,
-    tilePosition: tile ? getComputedStyle(tile).position : null,
-    tileWidth: tile ? getComputedStyle(tile).width : null,
-    tileHeight: tile ? getComputedStyle(tile).height : null,
-    mapPanePosition: mapPane ? getComputedStyle(mapPane).position : null,
-  };
-
-  window.__leafletDebugCss = window.__leafletDebugCss || [];
-  window.__leafletDebugCss.push(debugInfo);
-
-  console.log("Leaflet CSS debug:", debugInfo);
-}
-
 function refitMapToCurrentLayer() {
   map.invalidateSize(true);
-
-  if (alertsLayer && alertsLayer.getLayers().length > 0 && alertsLayer.getBounds().isValid()) {
-    map.fitBounds(alertsLayer.getBounds(), {
-      padding: [30, 30],
-      maxZoom: 8,
-    });
+  let bounds = null;
+  const layers = [alertsLayer, showNowcasting ? nowcastingLayer : null];
+  for (const layer of layers) {
+    if (layer && layer.getLayers().length > 0 && layer.getBounds().isValid()) {
+      bounds = bounds ? bounds.extend(layer.getBounds()) : L.latLngBounds(layer.getBounds());
+    }
+  }
+  if (bounds && bounds.isValid()) {
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 8 });
   } else {
-    map.fitBounds(ROMANIA_BOUNDS, {
-      padding: [20, 20],
-    });
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
   }
 }
 
 function clearAlertsLayer() {
-  if (alertsLayer) {
-    map.removeLayer(alertsLayer);
-    alertsLayer = null;
-  }
+  if (alertsLayer) { map.removeLayer(alertsLayer); alertsLayer = null; }
+  if (nowcastingLayer) { map.removeLayer(nowcastingLayer); nowcastingLayer = null; }
 }
 
 function setStatus(message) {
@@ -554,26 +526,21 @@ function setStatus(message) {
 
 function emptyMessageFor(metadata) {
   if (metadata?.alerts_found_raw && metadata?.features_with_geometry === 0) {
-    return metadata.reason === "XML contains alerts but no coordGis geometry was found"
-      ? MISSING_GEOMETRY_MESSAGE
-      : metadata.reason || EMPTY_MESSAGE;
+    return metadata.reason || EMPTY_MESSAGE;
   }
-
   return NO_ALERTS_MESSAGE;
 }
 
 function getAlertStyle(feature) {
-  const props = feature.properties || {};
-  const code = safeNumber(props.cod_culoare, props.culoare || 0);
+  const code = safeNumber(feature.properties?.cod_culoare, feature.properties?.culoare || 0);
   const color = COD_COLOR[code] || COD_COLOR[0];
+  return { color, fillColor: color, weight: 1.5, opacity: 1, fillOpacity: code === 3 ? 0.62 : 0.55 };
+}
 
-  return {
-    color,
-    fillColor: color,
-    weight: 1.5,
-    opacity: 1,
-    fillOpacity: code === 3 ? 0.62 : 0.55,
-  };
+function getNowcastingStyle(feature) {
+  const code = safeNumber(feature.properties?.cod_culoare, 0);
+  const color = COD_COLOR[code] || COD_COLOR[0];
+  return { color, fillColor: color, weight: 1.5, opacity: 0.9, dashArray: "4 3", fillOpacity: 0.28 };
 }
 
 function addLegend() {
@@ -581,16 +548,13 @@ function addLegend() {
   legend.onAdd = () => {
     const container = L.DomUtil.create("div", "leaflet-control legend");
     const rows = [0, 1, 2, 3]
-      .map(
-        (code) => `
+      .map((code) => `
           <div class="legend-row">
             <span class="legend-swatch" style="background:${COD_COLOR[code]}"></span>
             <span>${COD_NAME[code]}</span>
           </div>
-        `,
-      )
+        `)
       .join("");
-
     container.innerHTML = `<div class="legend-title">Coduri</div>${rows}`;
     return container;
   };
@@ -600,9 +564,7 @@ function addLegend() {
 function preferredInitialDate() {
   const dates = indexDates();
   const today = dataIndex.today || todayIso();
-  if (dates.includes(today)) {
-    return today;
-  }
+  if (dates.includes(today)) return today;
   return dates[dates.length - 1] || today;
 }
 
@@ -614,11 +576,7 @@ function indexDates() {
   if (dataIndex.dates && !Array.isArray(dataIndex.dates)) {
     return Object.keys(dataIndex.dates).sort();
   }
-
-  if (!Array.isArray(dataIndex.files)) {
-    return [];
-  }
-
+  if (!Array.isArray(dataIndex.files)) return [];
   return dataIndex.files
     .map((file) => (typeof file === "string" ? file.replace(/\.geojson$/, "") : file?.date))
     .filter(Boolean)
@@ -640,7 +598,7 @@ function detailRow(label, value) {
 }
 
 function formatValidity(props) {
-  return props.interval_text || props.intervalul || formatRange(props.interval_start || props.data_aparitiei, props.interval_end || props.data_expirarii);
+  return props.interval_text || props.intervalul || formatRange(props.interval_start || props.data_aparitiei, props.interval_end || props.data_expirare);
 }
 
 function formatRange(start, end) {
@@ -649,47 +607,29 @@ function formatRange(start, end) {
 
 function formatDuration(props) {
   const hours = props.durata_ore;
-  const days = props.durata_zile_text;
-  const hourText = hours ? `${hours} ${Number(hours) === 1 ? "oră" : "ore"}` : "";
-
-  if (hourText && days) {
-    return `${hourText} / ${days}`;
-  }
-  return hourText || days || "-";
+  if (!hours) return "-";
+  const days = Math.max(1, Math.round(Number(hours) / 24));
+  const hourText = `${hours} ${Number(hours) === 1 ? "oră" : "ore"}`;
+  return Number(hours) >= 24 ? `${hourText} / ${days} zile` : hourText;
 }
 
 function formatAlertDateTime(value) {
-  if (!value) {
-    return "";
-  }
-
+  if (!value) return "";
   const date = new Date(String(value).length === 16 ? `${value}:00` : value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const dayMonth = new Intl.DateTimeFormat("ro-RO", {
-    day: "numeric",
-    month: "long",
-  }).format(date);
-  const time = new Intl.DateTimeFormat("ro-RO", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-
+  if (Number.isNaN(date.getTime())) return value;
+  const dayMonth = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "long" }).format(date);
+  const time = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" }).format(date);
   return `${dayMonth}, ora ${time}`;
 }
 
 function shortFeatureText(props) {
-  const code = String(props.cod_culoare_nume || props.cod || "verde").toLowerCase();
+  const code = String(props.cod_culoare_nume || COD_NAME[safeNumber(props.cod_culoare, 0)] || "Verde").toLowerCase();
   const phenomenon = props.fenomen_principal || PHENOMENON_FALLBACK;
   return `Această zonă este afectată de cod ${code} de ${phenomenon}.`;
 }
 
 function sourceLabel(source) {
-  if (!source) {
-    return "ANM";
-  }
+  if (!source) return "ANM";
   return String(source).toLowerCase().includes("nowcasting") ? "ANM Nowcasting" : "ANM General";
 }
 
@@ -698,21 +638,14 @@ function colorCountsHtml(colorCounts, fallbackColors = {}) {
   if (!Object.keys(counts).length && fallbackColors) {
     for (const color of Object.values(fallbackColors)) {
       const code = String(color);
-      if (safeNumber(code, 0) > 0) {
-        counts[code] = (counts[code] || 0) + 1;
-      }
+      if (safeNumber(code, 0) > 0) counts[code] = (counts[code] || 0) + 1;
     }
   }
-
   const entries = Object.entries(counts)
     .map(([code, count]) => [safeNumber(code, 0), count])
     .filter(([code]) => code > 0)
     .sort((a, b) => a[0] - b[0]);
-
-  if (!entries.length) {
-    return codeChip(0);
-  }
-
+  if (!entries.length) return codeChip(0);
   return entries.map(([code, count]) => `${codeChip(code)} <span class="count-badge">${escapeHtml(count)}</span>`).join(" ");
 }
 
@@ -721,11 +654,7 @@ function phenomenaHtml(phenomenaByCode) {
     .map(([code, text]) => [safeNumber(code, 0), text])
     .filter(([code, text]) => code > 0 && text)
     .sort((a, b) => a[0] - b[0]);
-
-  if (!entries.length) {
-    return escapeHtml(PHENOMENON_FALLBACK);
-  }
-
+  if (!entries.length) return escapeHtml(PHENOMENON_FALLBACK);
   return entries
     .map(([code, text]) => `<span class="phenomenon-line">${codeChip(code)} ${escapeHtml(text)}</span>`)
     .join("");
@@ -738,23 +667,15 @@ function codeChip(code) {
 
 function pluralAlerts(count) {
   const n = safeNumber(count, 0);
-  if (n === 1) {
-    return "1 avertizare activă";
-  }
-  if (n >= 20) {
-    return `${n} de avertizări active`;
-  }
+  if (n === 1) return "1 avertizare activă";
+  if (n >= 20) return `${n} de avertizări active`;
   return `${n} avertizări active`;
 }
 
 function pluralZones(count) {
   const n = safeNumber(count, 0);
-  if (n === 1) {
-    return "1 zonă afectată";
-  }
-  if (n >= 20) {
-    return `${n} de zone afectate`;
-  }
+  if (n === 1) return "1 zonă afectată";
+  if (n >= 20) return `${n} de zone afectate`;
   return `${n} zone afectate`;
 }
 
@@ -764,25 +685,18 @@ function sortedUnique(values) {
 
 function todayIso() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function parseIsoDate(value) {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
   const parsed = new Date(`${value}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 async function fetchJson(url) {
   const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 }
 

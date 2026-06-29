@@ -1,12 +1,8 @@
-# MeteoAlertRO - Arhiva avertizarilor
+# Arhivă avertizări ANM (MeteoAlertRO)
 
-CSV-urile lunare sunt generate automat din fluxurile ANM si sunt servite prin GitHub Pages.
+CSV lunar, un rând per avertizare logică. Encoding UTF-8 (BOM).
 
-## Fisiere
-
-| Luna | Avertizari | Interval | Cod maxim | CSV |
-|---|---:|---|---|---|
-| 2026-06 | 2 | 2026-06-29 - 2026-07-01 | Roșu | `istoric/2026/2026-06.csv` |
-| 2026-07 | 2 | 2026-07-01 - 2026-07-01 | Portocaliu | `istoric/2026/2026-07.csv` |
-
-Encoding CSV: UTF-8-SIG, compatibil cu Excel.
+| Lună | Alerte | Interval | Cod max | Fișier |
+|---|---|---|---|---|
+| 2026-07 | 3 | 2026-07-01–2026-07-01 | Portocaliu | [2026-07.csv](2026/2026-07.csv) |
+| 2026-06 | 5 | 2026-06-29–2026-06-30 | Roșu | [2026-06.csv](2026/2026-06.csv) |

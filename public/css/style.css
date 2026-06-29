@@ -196,6 +196,7 @@ h3 {
 }
 
 .calendar {
+  max-width: 360px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -234,6 +235,7 @@ h3 {
 .cal-cell {
   min-width: 0;
   aspect-ratio: 1;
+  font-size: 0.82rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
   color: var(--text);
@@ -732,4 +734,151 @@ h3 {
 
 .leaflet-control-container .leaflet-control {
   pointer-events: auto;
+}
+
+
+/* --- nowcasting + toggle (adăugat 2026-06-29) --- */
+.cal-cell.has-nowcasting {
+  position: relative;
+  background: #1d2840;
+  color: var(--text);
+}
+.cal-cell.has-nowcasting::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-1);
+}
+.nowcasting-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+.nowcasting-toggle input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Compact calendar hard override */
+.calendar-section {
+  width: 100%;
+}
+
+#calendar.calendar,
+.calendar {
+  width: min(100%, 360px) !important;
+  max-width: 360px !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+#calendar .cal-head,
+.calendar .cal-head {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1fr) 34px !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 8px !important;
+}
+
+#calendar .cal-head span,
+.calendar .cal-head span {
+  font-size: 0.9rem !important;
+  line-height: 1.2 !important;
+}
+
+#calendar .icon-button,
+.calendar .icon-button {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  font-size: 1.1rem !important;
+  line-height: 1 !important;
+}
+
+#calendar .cal-grid,
+.calendar .cal-grid {
+  display: grid !important;
+  grid-template-columns: repeat(7, 34px) !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 8px !important;
+}
+
+#calendar .cal-weekday,
+.calendar .cal-weekday {
+  width: 34px !important;
+  height: 18px !important;
+  min-width: 34px !important;
+  min-height: 18px !important;
+  font-size: 0.72rem !important;
+  line-height: 18px !important;
+  text-align: center !important;
+}
+
+#calendar .cal-cell,
+.calendar .cal-cell {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  max-width: 34px !important;
+  max-height: 34px !important;
+  aspect-ratio: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 0.78rem !important;
+  line-height: 1 !important;
+  border-radius: 6px !important;
+}
+
+#calendar .cal-cell.empty,
+.calendar .cal-cell.empty {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+@media (max-width: 520px) {
+  #calendar.calendar,
+  .calendar {
+    width: min(100%, 330px) !important;
+    max-width: 330px !important;
+  }
+
+  #calendar .cal-grid,
+  .calendar .cal-grid {
+    grid-template-columns: repeat(7, 30px) !important;
+    gap: 4px !important;
+  }
+
+  #calendar .cal-weekday,
+  .calendar .cal-weekday,
+  #calendar .cal-cell,
+  .calendar .cal-cell {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+  }
+
+  #calendar .cal-cell,
+  .calendar .cal-cell {
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+  }
 }
