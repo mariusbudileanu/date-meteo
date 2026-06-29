@@ -5,6 +5,7 @@ const ROMANIA_BOUNDS = [
 ];
 
 const NO_ALERTS_MESSAGE = "Nu există avertizări arhivate pentru această dată.";
+const NO_NOWCASTING_MESSAGE = "Nu există avertizări nowcasting active în acest moment.";
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
 const COD_COLOR = { 1: "#FDE047", 2: "#FB923C", 3: "#F43F5E" };
 const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
@@ -274,6 +275,7 @@ function publishDebugState(visibleFeatures, cardRecords) {
         maxCode: feature.properties.max_code,
         secondaryCode: feature.properties.secondary_code,
         hasOverlap: feature.properties.has_overlap,
+        hasNowcasting: feature.properties.has_nowcasting,
         clickPoint: featureClickPoint(feature),
         alertIds: (feature.properties.features || []).map((item) => item.properties?.alert_id),
         phenomena: (feature.properties.features || []).map((item) => item.properties?.fenomen_principal),
@@ -528,6 +530,7 @@ function onEachAggregateFeature(feature, layer) {
         <span>${escapeHtml(pluralActiveAlerts(count))}</span>
         <span>Cod maxim: ${escapeHtml(COD_NAME[code] || "-")}</span>
         <span>Fenomene: ${escapeHtml(phenomena || "-")}</span>
+        ${props.has_nowcasting ? "<span>Include alertă nowcasting</span>" : ""}
         <span>Click pentru detalii</span>
       </div>
   `);
@@ -590,6 +593,7 @@ function countyAlertHtml(feature, index) {
       <dl class="detail-list compact-detail-list">
         ${detailRow("Valabilitate", formatValidity(props))}
         ${detailRow("Fenomen", featureText(feature))}
+        ${props.zona_nume ? detailRow("Zonă", props.zona_nume) : ""}
         ${detailRow("Sursa", sourceLabel(props.source || props.tip))}
       </dl>
     </article>
@@ -634,12 +638,18 @@ function alertChipHtml(record) {
 function renderNowcastingSection(features) {
   if (!nowcastingSection || !nowcastingSummaryElement) return;
   const records = recordsMatchingFeatures(features).filter(isNowcastingRecord);
-  const show = selectedSourceMode !== "general" && records.length > 0;
+  const show = nowcastingEnabled();
   nowcastingSection.hidden = !show;
   if (!show) {
     nowcastingSummaryElement.innerHTML = "";
     return;
   }
+  if (!records.length) {
+    nowcastingSummaryElement.classList.add("empty-state");
+    nowcastingSummaryElement.innerHTML = escapeHtml(NO_NOWCASTING_MESSAGE);
+    return;
+  }
+  nowcastingSummaryElement.classList.remove("empty-state");
   nowcastingSummaryElement.innerHTML = records.map((record) => alertCardHtml(record)).join("");
   attachAlertCardEvents();
 }
@@ -862,64 +872,111 @@ function emptyIndexes() {
 
 function applyDemoOverlap(data) {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("demo") !== "overlap") return data;
+  const demo = params.get("demo");
+  if (demo === "nowcasting" || demo === "overlap") return applyDemoNowcastingFixture(data);
+  return data;
+}
+
+function applyDemoNowcastingFixture(data) {
   const clone = JSON.parse(JSON.stringify(data));
-  const features = Array.isArray(clone.features) ? clone.features : [];
-  const cluj = features.find((feature) => feature.properties?.judet_cod === "CJ" && !isNowcastingFeature(feature));
-  if (!cluj || features.some((feature) => feature.properties?.alert_id === "demo_rain_yellow")) return clone;
+  const originalFeatures = Array.isArray(clone.features) ? clone.features : [];
+  const albaTemplate = originalFeatures.find((feature) => feature.properties?.judet_cod === "AB" && !isNowcastingFeature(feature));
+  if (!albaTemplate) return clone;
 
-  cluj.properties.alert_id = "demo_heat_red";
-  cluj.properties.cod_culoare = 3;
-  cluj.properties.cod_culoare_nume = "Roșu";
-  cluj.properties.fenomen_principal = "caniculă severă";
-  cluj.properties.interval_text = cluj.properties.interval_text || "interval demo";
-  cluj.properties.source = "general";
+  const start = new Date();
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const intervalStart = localIsoMinute(start);
+  const intervalEnd = localIsoMinute(end);
+  const intervalText = `${formatAlertDateTime(intervalStart)} - ${formatAlertDateTime(intervalEnd)}`;
+  const retainedFeatures = originalFeatures.filter((feature) => feature.properties?.judet_cod !== "AB");
 
-  const rain = JSON.parse(JSON.stringify(cluj));
-  rain.properties.alert_id = "demo_rain_yellow";
-  rain.properties.cod_culoare = 1;
-  rain.properties.cod_culoare_nume = "Galben";
-  rain.properties.fenomen_principal = "ploi / instabilitate";
-  rain.properties.interval_text = cluj.properties.interval_text || "interval demo";
-  rain.properties.source = "general";
-  features.push(rain);
+  const general = JSON.parse(JSON.stringify(albaTemplate));
+  general.properties = {
+    ...general.properties,
+    alert_id: "demo_ab_heat_orange",
+    source: "general",
+    tip: "general",
+    judet_cod: "AB",
+    judet_nume: "Alba",
+    cod_culoare: 2,
+    cod_culoare_nume: "Portocaliu",
+    fenomen_principal: "caniculă",
+    fenomene_vizate: "caniculă",
+    mesaj_plain: "Alertă demo locală pentru testarea suprapunerii dintre General ANM și Nowcasting.",
+    mesaj_html: "<p>Alertă demo locală: cod portocaliu de caniculă pentru județul Alba.</p>",
+    interval_text: intervalText,
+    interval_start: intervalStart,
+    interval_end: intervalEnd,
+    data_aparitiei: intervalStart,
+    data_expirare: intervalEnd,
+    durata_ore: 1,
+    demo_fixture: "nowcasting",
+  };
+
+  const nowcasting = JSON.parse(JSON.stringify(albaTemplate));
+  nowcasting.properties = {
+    ...nowcasting.properties,
+    alert_id: "demo_ab_nowcasting_yellow",
+    source: "nowcasting",
+    tip: "nowcasting",
+    judet_cod: "AB",
+    judet_nume: "Alba",
+    zona_nume: "Alba - zona montană",
+    cod_culoare: 1,
+    cod_culoare_nume: "Galben",
+    fenomen_principal: "averse torențiale / descărcări electrice",
+    fenomene_vizate: "averse / vijelii",
+    mesaj_plain: "Alertă demo locală pentru testarea nowcasting: averse torențiale, descărcări electrice și vijelii.",
+    mesaj_html: "<p>Alertă demo locală nowcasting: cod galben de averse torențiale, descărcări electrice și vijelii în Alba - zona montană.</p>",
+    interval_text: intervalText,
+    interval_start: intervalStart,
+    interval_end: intervalEnd,
+    data_aparitiei: intervalStart,
+    data_expirare: intervalEnd,
+    durata_ore: 1,
+    demo_fixture: "nowcasting",
+  };
+
+  const features = [...retainedFeatures, general, nowcasting];
   clone.features = features;
 
   clone.metadata = clone.metadata || {};
-  clone.metadata.demo_overlap = true;
-  clone.metadata.active_alerts = Array.isArray(clone.metadata.active_alerts) ? clone.metadata.active_alerts : [];
+  clone.metadata.demo_nowcasting = true;
+  clone.metadata.active_alerts = (Array.isArray(clone.metadata.active_alerts) ? clone.metadata.active_alerts : [])
+    .filter((record) => !String(record.alert_id || "").startsWith("demo_ab_"));
   clone.metadata.active_alerts.push({
-    alert_id: "demo_heat_red",
+    alert_id: "demo_ab_heat_orange",
     source: "general",
-    interval_text: cluj.properties.interval_text,
-    interval_start: cluj.properties.interval_start,
-    interval_end: cluj.properties.interval_end,
-    durata_ore: cluj.properties.durata_ore,
-    cod_culoare_max: 3,
-    fenomene_pe_cod: { 3: "caniculă severă" },
-    judete_afectate: ["CJ"],
+    interval_text: intervalText,
+    interval_start: intervalStart,
+    interval_end: intervalEnd,
+    durata_ore: 1,
+    cod_culoare_max: 2,
+    fenomene_pe_cod: { 2: "caniculă" },
+    judete_afectate: ["AB"],
     judete_count: 1,
-    judete_culori: { CJ: 3 },
-    color_counts: { 3: 1 },
-    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor: cod roșu de caniculă severă.</p>",
+    judete_culori: { AB: 2 },
+    color_counts: { 2: 1 },
+    text_alerta_html: "<p>Alertă demo locală: cod portocaliu de caniculă pentru județul Alba.</p>",
   });
   clone.metadata.active_alerts.push({
-    alert_id: "demo_rain_yellow",
-    source: "general",
-    interval_text: rain.properties.interval_text,
-    interval_start: rain.properties.interval_start,
-    interval_end: rain.properties.interval_end,
-    durata_ore: rain.properties.durata_ore,
+    alert_id: "demo_ab_nowcasting_yellow",
+    source: "nowcasting",
+    interval_text: intervalText,
+    interval_start: intervalStart,
+    interval_end: intervalEnd,
+    durata_ore: 1,
     cod_culoare_max: 1,
-    fenomene_pe_cod: { 1: "ploi / instabilitate" },
-    judete_afectate: ["CJ"],
+    fenomene_pe_cod: { 1: "averse torențiale / descărcări electrice" },
+    judete_afectate: ["AB"],
     judete_count: 1,
-    judete_culori: { CJ: 1 },
+    judete_culori: { AB: 1 },
     color_counts: { 1: 1 },
-    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor: cod galben de ploi și instabilitate.</p>",
+    text_alerta_html: "<p>Alertă demo locală nowcasting: cod galben de averse torențiale, descărcări electrice și vijelii în Alba - zona montană.</p>",
   });
   clone.metadata.alert_count = countDistinctAlerts(features);
   clone.metadata.feature_count = features.length;
+  clone.metadata.nowcasting_count = features.filter(isNowcastingFeature).length;
   return clone;
 }
 
@@ -1247,6 +1304,11 @@ function formatAlertDateTime(value) {
   const dayMonth = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "long" }).format(date);
   const time = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" }).format(date);
   return `${dayMonth}, ora ${time}`;
+}
+
+function localIsoMinute(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
 }
 
 function formatDisplayDate(value) {
