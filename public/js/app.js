@@ -11,7 +11,9 @@ const COD_COLOR = { 0: "#34D399", 1: "#FACC15", 2: "#FB923C", 3: "#F43F5E" };
 const COD_NAME = { 0: "Verde", 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
 
 const statusElement = document.getElementById("status");
-const datePicker = document.getElementById("alert-date-picker"); // optional (poate lipsi)
+const lastUpdatedElement = document.getElementById("last-updated");
+const daySummaryElement = document.getElementById("day-summary");
+const datePicker = document.getElementById("alert-date-picker"); // optional
 const latestButton = document.getElementById("latest-alerts-button");
 const nowcastingToggle = document.getElementById("toggle-nowcasting");
 const calendarElement = document.getElementById("calendar");
@@ -54,11 +56,14 @@ function setDatePicker(value) {
 
 async function start() {
   dataIndex = await loadIndex();
+  renderLastUpdated(dataIndex.generated_at_utc);
+
   const initialDate = dataIndex.latest_date || preferredInitialDate();
   selectedDate = initialDate;
   setDatePicker(initialDate || todayIso());
   setCalendarView(initialDate || todayIso());
   renderCalendar();
+  renderDaySummary({ date: initialDate }, [], initialDate);
 
   if (datePicker) datePicker.addEventListener("change", () => showDate(datePicker.value));
   if (latestButton) latestButton.addEventListener("click", () => loadLatestAlerts());
@@ -91,7 +96,7 @@ async function loadIndex() {
 }
 
 async function loadLatestAlerts() {
-  setStatus("Se încarcă...");
+  setStatus("Se încarcă ultimele avertizări ANM...");
   try {
     const data = await fetchJson("data/latest.geojson");
     const dateLabel = data.metadata?.latest_for_date || data.metadata?.date || dataIndex.latest_date || selectedDate;
@@ -118,7 +123,7 @@ async function showDate(dateString) {
     return;
   }
 
-  setStatus("Se încarcă...");
+  setStatus("Se încarcă avertizările ANM pentru data selectată...");
   const file = dataIndex.dates?.[dateString]?.file || `${dateString}.geojson`;
   try {
     const data = await fetchJson(`data/${file}`);
@@ -146,6 +151,7 @@ function renderAlertData(data, dateLabel) {
 
   const generalFeatures = allFeatures.filter((f) => (f.properties?.source || "general") !== "nowcasting");
   const nowcastingFeatures = allFeatures.filter((f) => f.properties?.source === "nowcasting");
+  const visibleFeatures = showNowcasting ? [...generalFeatures, ...nowcastingFeatures] : generalFeatures;
 
   if (generalFeatures.length) {
     alertsLayer = L.geoJSON({ type: "FeatureCollection", features: generalFeatures }, {
@@ -160,6 +166,9 @@ function renderAlertData(data, dateLabel) {
     }).addTo(map);
   }
 
+  renderDaySummary(metadata, visibleFeatures, effectiveDate);
+  renderAlertsSummary(metadata, visibleFeatures);
+
   const hasGeneral = generalFeatures.length > 0;
   const hasNowcasting = nowcastingFeatures.length > 0;
 
@@ -167,15 +176,13 @@ function renderAlertData(data, dateLabel) {
     map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
     const ncCount = safeNumber(metadata.nowcasting_count, nowcastingFeatures.length);
     const note = hasNowcasting
-      ? `${NO_ALERTS_MESSAGE} (există ${ncCount} avertizări nowcasting — activează afișarea)`
+      ? `${NO_ALERTS_MESSAGE} (${ncCount} avertizări nowcasting disponibile, activează afișarea pentru a le vedea)`
       : emptyMessageFor(metadata);
     setStatus(note);
-    renderAlertsSummary(metadata, []);
     return;
   }
 
-  renderStatus(metadata, generalFeatures, effectiveDate);
-  renderAlertsSummary(metadata, generalFeatures);
+  renderStatus(metadata, visibleFeatures, effectiveDate);
 
   requestAnimationFrame(() => refitMapToCurrentLayer());
   setTimeout(() => {
@@ -187,6 +194,7 @@ function renderAlertData(data, dateLabel) {
 function renderNoAlerts(message, dateLabel) {
   clearAlertsLayer();
   renderSelectedFeature(null);
+  renderDaySummary({ date: dateLabel }, [], dateLabel);
   renderAlertsSummary({ active_alerts: [] }, []);
   map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
   setStatus(message || (dateLabel ? `${NO_ALERTS_MESSAGE} pentru ${dateLabel}` : NO_ALERTS_MESSAGE));
@@ -201,21 +209,62 @@ function renderEmptyDay(dateString) {
   renderNoAlerts(NO_ALERTS_MESSAGE, dateString);
 }
 
+function renderLastUpdated(value) {
+  if (!lastUpdatedElement) return;
+  lastUpdatedElement.textContent = `Ultima actualizare: ${formatUtcStamp(value) || "necunoscută"}`;
+}
+
 function renderStatus(metadata, features, dateLabel) {
   const alertCount = safeNumber(metadata?.alert_count, countDistinctAlerts(features));
   const featureCount = safeNumber(metadata?.feature_count, features.length);
-  let text = `${pluralAlerts(alertCount)} · ${pluralZones(featureCount)} pentru ${dateLabel}`;
+  const maxCode = maxCodeFromRecords(normalizedActiveRecords(metadata, features), features, dataIndex.dates?.[dateLabel]?.max_color);
+  let text = `${formatDisplayDate(dateLabel)} · ${pluralAnmAlerts(alertCount)} · ${pluralZones(featureCount)} · cod maxim ${COD_NAME[maxCode] || "Verde"}`;
   const nowcasting = safeNumber(metadata?.nowcasting_count, 0);
   if (nowcasting > 0 && !showNowcasting) {
-    text += ` · ${nowcasting} nowcasting (ascuns)`;
+    text += ` · ${nowcasting} nowcasting ascuns`;
   }
   setStatus(text);
+}
+
+function renderDaySummary(metadata, features, dateLabel) {
+  if (!daySummaryElement) return;
+
+  const indexInfo = dataIndex.dates?.[dateLabel] || {};
+  const records = normalizedActiveRecords(metadata, features);
+  const alertCount = safeNumber(metadata?.alert_count, safeNumber(indexInfo.alert_count, countDistinctAlerts(features)));
+  const featureCount = safeNumber(metadata?.feature_count, safeNumber(indexInfo.feature_count, features.length));
+  const maxCode = maxCodeFromRecords(records, features, indexInfo.max_color);
+  const hasAlerts = alertCount > 0 || featureCount > 0 || records.length > 0;
+
+  if (!hasAlerts) {
+    const reason = metadata?.alerts_found_raw ? (metadata.reason || EMPTY_MESSAGE) : NO_ALERTS_MESSAGE;
+    daySummaryElement.innerHTML = `
+      <div class="summary-card summary-card-date">
+        <span class="summary-label">Data selectată</span>
+        <strong>${escapeHtml(formatDisplayDate(dateLabel || selectedDate || todayIso()))}</strong>
+      </div>
+      <div class="summary-empty">
+        <strong>${escapeHtml(reason)}</strong>
+        <span>Harta rămâne centrată pe România.</span>
+      </div>
+    `;
+    return;
+  }
+
+  daySummaryElement.innerHTML = `
+    ${summaryCard("Data selectată", formatDisplayDate(dateLabel))}
+    ${summaryCard("Avertizări ANM", alertCount)}
+    ${summaryCard("Zone afectate", featureCount)}
+    ${summaryCard("Cod maxim", codeChip(maxCode), "summary-code")}
+    ${summaryCard("Fenomene", summaryPhenomena(records, features), "summary-wide")}
+    ${summaryCard("Interval", summaryInterval(records, features), "summary-wide")}
+  `;
 }
 
 function renderSelectedFeature(feature) {
   if (!feature) {
     featureDetailsElement.classList.add("empty-state");
-    featureDetailsElement.innerHTML = "Nicio zonă selectată.";
+    featureDetailsElement.innerHTML = "Click pe un județ colorat pentru detalii despre cod, fenomen și valabilitate.";
     return;
   }
 
@@ -226,9 +275,13 @@ function renderSelectedFeature(feature) {
 
   featureDetailsElement.classList.remove("empty-state");
   featureDetailsElement.innerHTML = `
-    <div class="selected-code">${codeChip(code)}</div>
+    <div class="selected-zone">
+      <span>${escapeHtml(props.judet_nume || props.judet_cod || "Zonă afectată")}</span>
+      ${codeChip(code)}
+    </div>
     <dl class="detail-list">
-      ${detailRow("Județ / zonă", props.judet_nume || props.judet_cod || "")}
+      ${detailRow("Județ", props.judet_nume || props.judet_cod || "")}
+      ${detailRowHtml("Cod", codeChip(code))}
       ${detailRow("Fenomen", phenomenon)}
       ${detailRow("Valabilitate", formatValidity(props))}
       ${detailRow("Durată", formatDuration(props))}
@@ -239,8 +292,7 @@ function renderSelectedFeature(feature) {
 }
 
 function renderAlertsSummary(metadata, features) {
-  const activeAlerts = Array.isArray(metadata?.active_alerts) ? metadata.active_alerts : [];
-  let groups = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
+  let groups = normalizedActiveRecords(metadata, features);
   groups = groups.filter((g) => (g.source || "general") !== "nowcasting" || showNowcasting);
 
   if (!groups.length) {
@@ -251,6 +303,31 @@ function renderAlertsSummary(metadata, features) {
 
   alertsSummaryElement.classList.remove("empty-state");
   alertsSummaryElement.innerHTML = groups.map((record) => alertCardHtml(record)).join("");
+}
+
+function normalizedActiveRecords(metadata, features) {
+  const activeAlerts = Array.isArray(metadata?.active_alerts) ? metadata.active_alerts : [];
+  const groups = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
+  return groups.map((record) => normalizeAlertRecord(record));
+}
+
+function normalizeAlertRecord(record) {
+  const zones = Array.isArray(record.judete_afectate) ? record.judete_afectate : [];
+  const zoneColors = record.judete_culori || {};
+  const colorCounts = record.color_counts || countsFromZoneColors(zoneColors);
+  const maxCode = safeNumber(record.cod_culoare_max, maxCodeFromColorCounts(colorCounts));
+  return {
+    ...record,
+    alert_id: record.alert_id || "",
+    source: record.source || "general",
+    cod_culoare_max: maxCode,
+    fenomene_pe_cod: record.fenomene_pe_cod || {},
+    judete_afectate: zones,
+    judete_count: safeNumber(record.judete_count, zones.length),
+    judete_culori: zoneColors,
+    color_counts: colorCounts,
+    text_alerta_html: record.text_alerta_html || "",
+  };
 }
 
 function recordsFromFeatureGroups(features) {
@@ -299,25 +376,41 @@ function alertCardHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
   const message = DOMPurify.sanitize(record.text_alerta_html || "");
   const zones = Array.isArray(record.judete_afectate) ? record.judete_afectate : [];
-  const previewZones = zones.slice(0, 28).join(", ");
-  const overflow = zones.length > 28 ? ` și încă ${zones.length - 28}` : "";
-  const phenomena = phenomenaHtml(record.fenomene_pe_cod || {});
+  const zoneCount = safeNumber(record.judete_count, zones.length);
 
   return `
-    <article class="alert-card lvl-${max}">
+    <article class="alert-card lvl-${max}" data-alert-id="${escapeHtml(record.alert_id)}">
       <div class="alert-card-head">
-        <h3>${escapeHtml(sourceLabel(record.source))}</h3>
+        <div>
+          <p class="section-kicker">${escapeHtml(sourceLabel(record.source))}</p>
+          <h3>Avertizare meteorologică</h3>
+        </div>
         ${codeChip(max)}
       </div>
       <div class="alert-card-grid">
-        <div><strong>Coduri:</strong> ${colorCountsHtml(record.color_counts, record.judete_culori)}</div>
-        <div><strong>Interval:</strong> ${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end))}</div>
-        <div><strong>Fenomene:</strong> ${phenomena}</div>
-        <div><strong>Zone afectate:</strong> ${pluralZones(safeNumber(record.judete_count, zones.length))}</div>
-        <div class="span-2"><strong>Lista zonelor:</strong> ${escapeHtml(previewZones || "-")}${escapeHtml(overflow)}</div>
+        <div>
+          <span class="field-label">Cod maxim</span>
+          ${codeChip(max)}
+        </div>
+        <div>
+          <span class="field-label">Coduri prezente</span>
+          ${presentCodesHtml(record)}
+        </div>
+        <div>
+          <span class="field-label">Interval</span>
+          ${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}
+        </div>
+        <div>
+          <span class="field-label">Zone afectate</span>
+          ${escapeHtml(pluralZones(zoneCount))}
+        </div>
+        <div class="span-2">
+          <span class="field-label">Fenomene</span>
+          ${phenomenaListHtml(record.fenomene_pe_cod)}
+        </div>
       </div>
       <details>
-        <summary>Vezi textul complet ANM</summary>
+        <summary>Vezi textul complet publicat de ANM</summary>
         <div class="anm-message">${message || "Fără mesaj ANM."}</div>
       </details>
     </article>
@@ -327,15 +420,16 @@ function alertCardHtml(record) {
 function onEachAlertFeature(feature, layer) {
   const props = feature.properties || {};
   const code = safeNumber(props.cod_culoare, props.culoare || 0);
+  const county = props.judet_nume || props.judet_cod || "Zonă afectată";
+  const phenomenon = compactPhenomenon(props.fenomen_principal || PHENOMENON_FALLBACK);
+  const validUntil = formatAlertDateTime(props.interval_end || props.data_expirare);
 
   layer.bindPopup(`
-    <div class="popup-code">${codeChip(code)}</div>
-    <div class="popup-meta">
-      <strong>Județ / zonă:</strong> ${escapeHtml(props.judet_nume || props.judet_cod || "")}<br>
-      <strong>Fenomen:</strong> ${escapeHtml(props.fenomen_principal || PHENOMENON_FALLBACK)}<br>
-      <strong>Valabilitate:</strong> ${escapeHtml(formatValidity(props))}<br>
-      <strong>Durată:</strong> ${escapeHtml(formatDuration(props))}<br>
-      <strong>Sursa:</strong> ${escapeHtml(sourceLabel(props.source || props.tip))}
+    <div class="compact-popup">
+      <strong>${escapeHtml(county)}</strong>
+      <span>Cod ${escapeHtml(String(COD_NAME[code] || "verde").toLowerCase())}</span>
+      <span>${escapeHtml(phenomenon)}</span>
+      <span>Valabil până la: ${escapeHtml(validUntil || "-")}</span>
     </div>
   `);
 
@@ -395,6 +489,12 @@ function renderCountyHistory(countyCode) {
     return;
   }
 
+  const counts = county.color_counts || {};
+  const total = safeNumber(county.alert_count, 0);
+  const earlyHistoryNote = total < 10
+    ? `<p class="history-note">Istoricul este încă la început și va deveni mai relevant după mai multe rulări.</p>`
+    : "";
+
   countyHistoryElement.classList.remove("empty-state");
   countyHistoryElement.innerHTML = `
     <div class="history-stat">
@@ -402,10 +502,14 @@ function renderCountyHistory(countyCode) {
       ${codeChip(county.max_color)}
     </div>
     <div class="history-grid">
-      <div><strong>Avertizări arhivate:</strong> ${escapeHtml(county.alert_count)}</div>
-      <div><strong>Ultima expirare:</strong> ${escapeHtml(formatAlertDateTime(county.last_alert_end) || "-")}</div>
-      <div class="span-2"><strong>Distribuție coduri:</strong> ${colorCountsHtml(county.color_counts)}</div>
+      <div><span class="field-label">Total avertizări arhivate</span><strong>${escapeHtml(total)}</strong></div>
+      <div><span class="field-label">Cod galben</span><strong>${escapeHtml(safeNumber(counts["1"], 0))}</strong></div>
+      <div><span class="field-label">Cod portocaliu</span><strong>${escapeHtml(safeNumber(counts["2"], 0))}</strong></div>
+      <div><span class="field-label">Cod roșu</span><strong>${escapeHtml(safeNumber(counts["3"], 0))}</strong></div>
+      <div><span class="field-label">Ultima alertă</span><strong>${escapeHtml(formatAlertDateTime(county.last_alert_end) || "-")}</strong></div>
+      <div><span class="field-label">Cod maxim istoric</span>${codeChip(county.max_color)}</div>
     </div>
+    ${earlyHistoryNote}
   `;
 }
 
@@ -460,7 +564,7 @@ function renderCalendar() {
     const futureClass = dataIndex.today && iso > dataIndex.today ? "future" : "";
     const selectedClass = iso === selectedDate ? "selected" : "";
     const title = info
-      ? `${info.alert_count} avertizări · ${info.feature_count} zone${info.has_nowcasting ? ` · ${info.nowcasting_count} nowcasting` : ""}`
+      ? `${pluralAnmAlerts(info.alert_count)} · ${pluralZones(info.feature_count)} · cod maxim ${COD_NAME[code] || "Verde"}${info.has_nowcasting ? ` · ${info.nowcasting_count} nowcasting` : ""}`
       : "fără date";
     cells += `
       <button type="button" class="cal-cell ${codeClass} ${futureClass} ${selectedClass}"
@@ -521,7 +625,7 @@ function clearAlertsLayer() {
 }
 
 function setStatus(message) {
-  statusElement.textContent = message;
+  if (statusElement) statusElement.textContent = message;
 }
 
 function emptyMessageFor(metadata) {
@@ -588,11 +692,77 @@ function countDistinctAlerts(features) {
   return alertIds.size || (features.length ? 1 : 0);
 }
 
+function summaryCard(label, value, extraClass = "") {
+  const isHtml = String(value).includes("<");
+  return `
+    <article class="summary-card ${extraClass}">
+      <span class="summary-label">${escapeHtml(label)}</span>
+      <strong>${isHtml ? value : escapeHtml(value || "-")}</strong>
+    </article>
+  `;
+}
+
+function summaryPhenomena(records, features) {
+  const byCode = new Map();
+  for (const record of records) {
+    for (const [code, text] of Object.entries(record.fenomene_pe_cod || {})) {
+      if (text) byCode.set(safeNumber(code, 0), compactPhenomenon(text));
+    }
+  }
+  if (byCode.size) {
+    return [...byCode.entries()]
+      .filter(([code]) => code > 0)
+      .sort((a, b) => b[0] - a[0])
+      .map(([, text]) => text)
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(", ");
+  }
+  const phenomena = sortedUnique(features.map((feature) => compactPhenomenon(feature.properties?.fenomen_principal)).filter(Boolean));
+  return phenomena.slice(0, 3).join(", ") || PHENOMENON_FALLBACK;
+}
+
+function summaryInterval(records, features) {
+  const intervals = sortedUnique(records.map((record) => record.interval_text).filter(Boolean));
+  if (intervals.length === 1) return intervals[0];
+
+  const starts = records.map((record) => record.interval_start).filter(Boolean).sort();
+  const ends = records.map((record) => record.interval_end).filter(Boolean).sort();
+  if (starts.length && ends.length) return formatRange(starts[0], ends[ends.length - 1]);
+
+  const featureIntervals = sortedUnique(features.map((feature) => feature.properties?.interval_text).filter(Boolean));
+  if (featureIntervals.length === 1) return featureIntervals[0];
+  return intervals.length ? "intervale multiple, conform avertizărilor ANM" : "-";
+}
+
+function maxCodeFromRecords(records, features, fallback = 0) {
+  const recordMax = records.reduce((max, record) => Math.max(max, safeNumber(record.cod_culoare_max, 0)), 0);
+  const featureMax = features.reduce((max, feature) => Math.max(max, safeNumber(feature.properties?.cod_culoare, 0)), 0);
+  return Math.max(safeNumber(fallback, 0), recordMax, featureMax);
+}
+
+function countsFromZoneColors(zoneColors) {
+  const counts = {};
+  for (const color of Object.values(zoneColors || {})) {
+    const code = String(color);
+    if (safeNumber(code, 0) > 0) counts[code] = (counts[code] || 0) + 1;
+  }
+  return counts;
+}
+
+function maxCodeFromColorCounts(colorCounts) {
+  return Object.keys(colorCounts || {}).reduce((max, code) => Math.max(max, safeNumber(code, 0)), 0);
+}
+
 function detailRow(label, value) {
+  return detailRowHtml(label, escapeHtml(value || "-"));
+}
+
+function detailRowHtml(label, html) {
   return `
     <div class="detail-row">
       <dt class="detail-label">${escapeHtml(label)}</dt>
-      <dd>${escapeHtml(value || "-")}</dd>
+      <dd>${html || "-"}</dd>
     </div>
   `;
 }
@@ -606,11 +776,22 @@ function formatRange(start, end) {
 }
 
 function formatDuration(props) {
-  const hours = props.durata_ore;
-  if (!hours) return "-";
-  const days = Math.max(1, Math.round(Number(hours) / 24));
-  const hourText = `${hours} ${Number(hours) === 1 ? "oră" : "ore"}`;
-  return Number(hours) >= 24 ? `${hourText} / ${days} zile` : hourText;
+  const hours = Number(props.durata_ore);
+  if (!Number.isFinite(hours) || hours <= 0) return "-";
+  const roundedHours = Number.isInteger(hours) ? hours : Math.round(hours * 10) / 10;
+  const hourText = `${roundedHours} ${roundedHours === 1 ? "oră" : "ore"}`;
+  const calendarDays = calendarDaySpan(props.interval_start || props.data_aparitiei, props.interval_end || props.data_expirare);
+  return calendarDays > 1 ? `${hourText} / ${calendarDays} zile calendaristice` : hourText;
+}
+
+function calendarDaySpan(start, end) {
+  if (!start || !end) return 0;
+  const startDate = new Date(String(start).length === 16 ? `${start}:00` : start);
+  const endDate = new Date(String(end).length === 16 ? `${end}:00` : end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  const startMidnight = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  return Math.max(1, Math.round((endMidnight - startMidnight) / 86400000) + 1);
 }
 
 function formatAlertDateTime(value) {
@@ -622,10 +803,34 @@ function formatAlertDateTime(value) {
   return `${dayMonth}, ora ${time}`;
 }
 
+function formatDisplayDate(value) {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return value || "-";
+  return new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "long", year: "numeric" }).format(parsed);
+}
+
+function formatUtcStamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const hh = String(date.getUTCHours()).padStart(2, "0");
+  const min = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${min} UTC`;
+}
+
 function shortFeatureText(props) {
   const code = String(props.cod_culoare_nume || COD_NAME[safeNumber(props.cod_culoare, 0)] || "Verde").toLowerCase();
-  const phenomenon = props.fenomen_principal || PHENOMENON_FALLBACK;
-  return `Această zonă este afectată de cod ${code} de ${phenomenon}.`;
+  const phenomenon = compactPhenomenon(props.fenomen_principal || PHENOMENON_FALLBACK).toLowerCase();
+  return `Această zonă este afectată de cod ${code} pentru ${phenomenon}.`;
+}
+
+function compactPhenomenon(text) {
+  const clean = String(text || PHENOMENON_FALLBACK).replace(/\s+/g, " ").trim();
+  const firstPart = clean.split(/[;,]/)[0]?.trim() || clean;
+  return firstPart.charAt(0).toUpperCase() + firstPart.slice(1);
 }
 
 function sourceLabel(source) {
@@ -633,13 +838,20 @@ function sourceLabel(source) {
   return String(source).toLowerCase().includes("nowcasting") ? "ANM Nowcasting" : "ANM General";
 }
 
+function presentCodesHtml(record) {
+  const counts = record.color_counts || countsFromZoneColors(record.judete_culori);
+  const entries = Object.keys(counts)
+    .map((code) => safeNumber(code, 0))
+    .filter((code) => code > 0)
+    .sort((a, b) => a - b);
+  if (!entries.length) return codeChip(0);
+  return `<span class="codes-present">${entries.map((code) => codeChip(code)).join("<span class=\"slash\">/</span>")}</span>`;
+}
+
 function colorCountsHtml(colorCounts, fallbackColors = {}) {
   const counts = { ...(colorCounts || {}) };
   if (!Object.keys(counts).length && fallbackColors) {
-    for (const color of Object.values(fallbackColors)) {
-      const code = String(color);
-      if (safeNumber(code, 0) > 0) counts[code] = (counts[code] || 0) + 1;
-    }
+    Object.assign(counts, countsFromZoneColors(fallbackColors));
   }
   const entries = Object.entries(counts)
     .map(([code, count]) => [safeNumber(code, 0), count])
@@ -649,15 +861,17 @@ function colorCountsHtml(colorCounts, fallbackColors = {}) {
   return entries.map(([code, count]) => `${codeChip(code)} <span class="count-badge">${escapeHtml(count)}</span>`).join(" ");
 }
 
-function phenomenaHtml(phenomenaByCode) {
+function phenomenaListHtml(phenomenaByCode) {
   const entries = Object.entries(phenomenaByCode || {})
     .map(([code, text]) => [safeNumber(code, 0), text])
     .filter(([code, text]) => code > 0 && text)
     .sort((a, b) => a[0] - b[0]);
-  if (!entries.length) return escapeHtml(PHENOMENON_FALLBACK);
-  return entries
-    .map(([code, text]) => `<span class="phenomenon-line">${codeChip(code)} ${escapeHtml(text)}</span>`)
-    .join("");
+  if (!entries.length) return `<p class="phenomenon-fallback">${escapeHtml(PHENOMENON_FALLBACK)}</p>`;
+  return `
+    <ul class="phenomena-list">
+      ${entries.map(([code, text]) => `<li><strong>Cod ${escapeHtml(String(COD_NAME[code] || "").toLowerCase())}:</strong> ${escapeHtml(text)}</li>`).join("")}
+    </ul>
+  `;
 }
 
 function codeChip(code) {
@@ -665,11 +879,11 @@ function codeChip(code) {
   return `<span class="cod cod-${normalized}">${escapeHtml(COD_NAME[normalized] || "Verde")}</span>`;
 }
 
-function pluralAlerts(count) {
+function pluralAnmAlerts(count) {
   const n = safeNumber(count, 0);
-  if (n === 1) return "1 avertizare activă";
-  if (n >= 20) return `${n} de avertizări active`;
-  return `${n} avertizări active`;
+  if (n === 1) return "1 avertizare ANM";
+  if (n >= 20) return `${n} de avertizări ANM`;
+  return `${n} avertizări ANM`;
 }
 
 function pluralZones(count) {

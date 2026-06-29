@@ -5,53 +5,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=2026-06-29">
+    <link rel="stylesheet" href="css/style.css?v=2026-06-29-ux2">
   </head>
   <body>
     <header class="app-header">
-      <div>
+      <div class="brand-block">
         <h1>MeteoAlertRO</h1>
-        <p id="status" role="status" aria-live="polite">Se încarcă...</p>
-      </div>
-      <div class="header-actions">
-        <label class="nowcasting-toggle">
-          <input type="checkbox" id="toggle-nowcasting">
-          <span>Afișează nowcasting</span>
-        </label>
-        <button type="button" class="secondary-button" id="latest-alerts-button">Ultimele alerte</button>
+        <p class="header-subtitle">Avertizări meteo ANM pe hartă · date oficiale meteoromania.ro</p>
+        <p id="last-updated" class="last-updated">Ultima actualizare: se încarcă...</p>
       </div>
     </header>
 
     <main class="main-content">
-      <section class="calendar-section" aria-labelledby="calendar-title">
-        <div class="section-heading">
-          <h2 id="calendar-title">Calendar avertizări</h2>
-          <div class="calendar-key" aria-hidden="true">
-            <span class="cod cod-0">Verde</span>
-            <span class="cod cod-1">Galben</span>
-            <span class="cod cod-2">Portocaliu</span>
-            <span class="cod cod-3">Roșu</span>
+      <section class="controls-bar" aria-label="Controale afișare avertizări">
+        <div class="calendar-control">
+          <div class="control-heading">
+            <h2 id="calendar-title">Data selectată</h2>
+            <div class="calendar-key" aria-hidden="true">
+              <span class="cod cod-0">Verde</span>
+              <span class="cod cod-1">Galben</span>
+              <span class="cod cod-2">Portocaliu</span>
+              <span class="cod cod-3">Roșu</span>
+            </div>
           </div>
+          <div id="calendar" class="calendar" aria-label="Calendar avertizări meteo"></div>
         </div>
-        <div id="calendar" class="calendar" aria-label="Calendar avertizări meteo"></div>
+
+        <div class="controls-copy">
+          <span class="controls-label">Selectează o zi pentru hartă</span>
+          <p>Alege o dată colorată pentru avertizările ANM colectate în arhivă. Zilele gri nu au date și nu folosesc fallback la latest.</p>
+        </div>
+
+        <button type="button" class="secondary-button" id="latest-alerts-button">Ultimele alerte</button>
+
+        <label class="nowcasting-toggle">
+          <input type="checkbox" id="toggle-nowcasting">
+          <span>Afișează nowcasting</span>
+        </label>
       </section>
+
+      <section class="day-summary" id="day-summary" aria-live="polite">
+        <div class="summary-loading">Se încarcă rezumatul zilei...</div>
+      </section>
+      <p id="status" class="status-note" role="status" aria-live="polite">Se încarcă...</p>
 
       <section class="map-section" aria-label="Hartă și detalii avertizări">
         <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
         <aside class="detail-panel" aria-labelledby="selected-feature-title">
           <h2 id="selected-feature-title">Detalii zonă selectată</h2>
-          <div id="feature-details" class="feature-details empty-state">Nicio zonă selectată.</div>
+          <div id="feature-details" class="feature-details empty-state">Click pe un județ colorat pentru detalii despre cod, fenomen și valabilitate.</div>
         </aside>
       </section>
 
       <section class="alerts-summary-section" aria-labelledby="alerts-summary-title">
-        <h2 id="alerts-summary-title">Avertizări active pentru data selectată</h2>
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">ANM</p>
+            <h2 id="alerts-summary-title">Avertizări active pentru data selectată</h2>
+          </div>
+        </div>
         <div id="alerts-summary" class="alerts-summary empty-state">Nu există avertizări încărcate.</div>
       </section>
 
       <section class="history-section" aria-labelledby="history-title">
         <div class="section-heading">
-          <h2 id="history-title">Istoric pe județ</h2>
+          <div>
+            <p class="section-kicker">Arhivă</p>
+            <h2 id="history-title">Istoric acumulat pe județ</h2>
+            <p class="section-description">Statisticile se acumulează automat pe măsură ce aplicația colectează avertizări în timp.</p>
+          </div>
           <label class="county-control" for="county-selector">
             <span>Județ</span>
             <select id="county-selector"></select>
@@ -61,7 +83,13 @@
       </section>
 
       <section class="downloads-section" aria-labelledby="downloads-title">
-        <h2 id="downloads-title">Descărcări — arhivă lunară</h2>
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Date brute</p>
+            <h2 id="downloads-title">Descărcări CSV</h2>
+            <p class="section-description">Fișiere CSV lunare generate automat din fluxurile ANM colectate.</p>
+          </div>
+        </div>
         <div class="downloads-table-wrap">
           <table class="downloads-table">
             <thead>
@@ -87,6 +115,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=2026-06-29"></script>
+    <script src="js/app.js?v=2026-06-29-ux2"></script>
   </body>
 </html>
