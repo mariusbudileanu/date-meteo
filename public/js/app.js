@@ -6,7 +6,7 @@ const ROMANIA_BOUNDS = [
 
 const NO_ALERTS_MESSAGE = "Nu există avertizări arhivate pentru această dată.";
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
-const COD_COLOR = { 1: "#FACC15", 2: "#FB923C", 3: "#F43F5E" };
+const COD_COLOR = { 1: "#FDE047", 2: "#FB923C", 3: "#F43F5E" };
 const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
 const COUNTY_CODES = new Set([
   "AB", "AR", "AG", "B", "BC", "BH", "BN", "BR", "BT", "BV", "BZ", "CJ", "CL", "CS", "CT", "CV",
@@ -41,6 +41,8 @@ const resetFiltersButton = document.getElementById("reset-filters-button");
 const visibleAlertChipsElement = document.getElementById("visible-alert-chips");
 const featureDetailsElement = document.getElementById("feature-details");
 const alertsSummaryElement = document.getElementById("alerts-summary");
+const compareSection = document.getElementById("compare-section");
+const compareAlertsElement = document.getElementById("compare-alerts");
 const nowcastingSection = document.getElementById("nowcasting-section");
 const nowcastingSummaryElement = document.getElementById("nowcasting-summary");
 const countySelector = document.getElementById("county-selector");
@@ -59,11 +61,16 @@ let currentDateLabel = "";
 let currentFeatures = [];
 let currentRecords = [];
 let currentIndexes = emptyIndexes();
+let alertsById = new Map();
+let featuresByCounty = new Map();
+let featuresByPhenomenon = new Map();
+let featuresBySeverity = new Map();
 let visibleAlertIds = new Set();
 let selectedCountyKey = "";
 let selectedCounty = "";
 let selectedPhenomenon = "all";
 let selectedSeverity = "all";
+let selectedSourceMode = "general";
 let mapMode = "max";
 let showOnlyOverlaps = false;
 
@@ -95,7 +102,7 @@ async function start() {
 
   latestButton?.addEventListener("click", () => loadLatestAlerts());
   sourceFilter?.addEventListener("change", () => {
-    if (nowcastingToggle) nowcastingToggle.checked = sourceFilter.value === "all";
+    if (nowcastingToggle) nowcastingToggle.checked = sourceFilter.value !== "general";
     updateDashboard();
   });
   nowcastingToggle?.addEventListener("change", () => {
@@ -176,6 +183,7 @@ function renderAlertData(data, dateLabel, resetVisibility) {
     visibleAlertIds = new Set(currentRecords.map((record) => record.alert_id).filter(Boolean));
   }
   currentIndexes = buildIndexes(currentRecords, currentFeatures);
+  syncIndexAliases();
 
   selectedDate = currentDateLabel;
   selectedCountyKey = "";
@@ -186,6 +194,7 @@ function renderAlertData(data, dateLabel, resetVisibility) {
 }
 
 function syncControlState() {
+  selectedSourceMode = sourceFilter?.value || "general";
   selectedPhenomenon = phenomenonFilter?.value || "all";
   selectedSeverity = severityFilter?.value || "all";
   mapMode = mapModeSelect?.value || "max";
@@ -194,7 +203,23 @@ function syncControlState() {
 }
 
 function nowcastingEnabled() {
-  return sourceFilter?.value === "all" && Boolean(nowcastingToggle?.checked);
+  return selectedSourceMode !== "general" || Boolean(nowcastingToggle?.checked);
+}
+
+function sourceMatchesFeature(feature) {
+  const isNowcasting = isNowcastingFeature(feature);
+  if (selectedSourceMode === "nowcasting") return isNowcasting;
+  if (selectedSourceMode === "all") return true;
+  if (nowcastingToggle?.checked) return true;
+  return !isNowcasting;
+}
+
+function syncIndexAliases() {
+  alertsById = currentIndexes.alertsById;
+  featuresByCounty = currentIndexes.featuresByCounty;
+  featuresByPhenomenon = currentIndexes.featuresByPhenomenon;
+  featuresBySeverity = currentIndexes.featuresBySeverity;
+  currentIndexes.visibleAlertIds = visibleAlertIds;
 }
 
 function resetDashboardFilters() {
@@ -205,6 +230,7 @@ function resetDashboardFilters() {
   if (mapModeSelect) mapModeSelect.value = "max";
   if (overlapFilter) overlapFilter.checked = false;
   visibleAlertIds = new Set(currentRecords.map((record) => record.alert_id).filter(Boolean));
+  syncIndexAliases();
   selectedCountyKey = "";
   selectedCounty = "";
   updateDashboard();
@@ -223,6 +249,7 @@ function updateDashboard() {
   renderMap(visibleFeatures);
   renderVisibleAlertChips(visibleRecords);
   renderAlertsSummary(cardRecords);
+  renderCompareSection(cardRecords);
   renderNowcastingSection(nowcastingFeatures);
   updateLegendActiveState();
 
@@ -257,7 +284,8 @@ function publishDebugState(visibleFeatures, cardRecords) {
 
   const debugState = {
     date: currentDateLabel,
-    source: sourceFilter?.value || "general",
+    source: selectedSourceMode,
+    selectedSourceMode,
     nowcastingEnabled: nowcastingEnabled(),
     phenomenon: selectedPhenomenon,
     severity: selectedSeverity,
@@ -267,7 +295,15 @@ function publishDebugState(visibleFeatures, cardRecords) {
     visibleAlertIds: [...visibleAlertIds],
     alertIds: currentRecords.map((record) => record.alert_id),
     cardAlertIds: cardRecords.map((record) => record.alert_id),
+    compareCardIds: cardRecords.slice(0, 4).map((record) => record.alert_id),
+    compareVisible: mapMode === "compare" && cardRecords.length > 0,
     visibleFeatureCount: visibleFeatures.length,
+    indexCounts: {
+      alertsById: alertsById.size,
+      featuresByCounty: featuresByCounty.size,
+      featuresByPhenomenon: featuresByPhenomenon.size,
+      featuresBySeverity: featuresBySeverity.size,
+    },
     byCounty,
   };
 
@@ -320,6 +356,7 @@ function renderEmptyDay(dateString) {
   currentRecords = [];
   currentIndexes = emptyIndexes();
   visibleAlertIds = new Set();
+  syncIndexAliases();
   selectedCountyKey = "";
   selectedCounty = "";
   selectedDate = dateString;
@@ -336,17 +373,17 @@ function renderEmptyDashboard(dateString, message) {
   alertsSummaryElement.classList.add("empty-state");
   alertsSummaryElement.innerHTML = message;
   renderVisibleAlertChips([]);
+  renderCompareSection([]);
   renderNowcastingSection([]);
   setStatus(message);
   publishDebugState([], []);
 }
 
 function getVisibleFeatures({ respectVisibleAlertIds }) {
-  const sourceAllowsNowcasting = nowcastingEnabled();
   const filtered = currentFeatures.filter((feature) => {
     const props = feature.properties || {};
     const alertId = props.alert_id || "";
-    const sourceOk = sourceAllowsNowcasting || !isNowcastingFeature(feature);
+    const sourceOk = sourceMatchesFeature(feature);
     const phenomenonOk = selectedPhenomenon === "all" || normalizePhenomenon(feature) === selectedPhenomenon;
     const severityOk = selectedSeverity === "all" || String(safeNumber(props.cod_culoare, 0)) === selectedSeverity;
     const alertOk = !respectVisibleAlertIds || !alertId || visibleAlertIds.has(alertId);
@@ -468,7 +505,7 @@ function aggregateStyle(feature) {
     opacity: 1,
     dashArray: props.has_overlap ? "5 3" : props.has_nowcasting ? "3 4" : null,
     fillOpacity: code === 3 ? 0.64 : 0.56,
-    className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : ""].filter(Boolean).join(" "),
+    className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : "", props.has_nowcasting ? "has-nowcasting" : ""].filter(Boolean).join(" "),
   };
 }
 
@@ -483,6 +520,7 @@ function onEachAggregateFeature(feature, layer) {
     element.classList.add("alert-county");
     if (props.county_key) element.classList.add(`county-${props.county_key}`);
     if (props.has_overlap) element.classList.add("has-overlap");
+    if (props.has_nowcasting) element.classList.add("has-nowcasting");
   });
   layer.bindPopup(`
       <div class="compact-popup">
@@ -585,9 +623,10 @@ function renderVisibleAlertChips(records) {
 
 function alertChipHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
+  const sourcePrefix = isNowcastingRecord(record) ? "Nowcasting · " : `Cod ${String(COD_NAME[max] || "-").toLowerCase()} · `;
   return `
-    <span class="visible-alert-chip lvl-${max}">
-      Cod ${escapeHtml(String(COD_NAME[max] || "-").toLowerCase())} · ${escapeHtml(recordPrimaryPhenomenon(record))}
+    <span class="visible-alert-chip lvl-${max} ${isNowcastingRecord(record) ? "nowcasting" : ""}">
+      ${escapeHtml(sourcePrefix)}${escapeHtml(recordPrimaryPhenomenon(record))}
     </span>
   `;
 }
@@ -595,7 +634,7 @@ function alertChipHtml(record) {
 function renderNowcastingSection(features) {
   if (!nowcastingSection || !nowcastingSummaryElement) return;
   const records = recordsMatchingFeatures(features).filter(isNowcastingRecord);
-  const show = sourceFilter?.value === "all" && records.length > 0;
+  const show = selectedSourceMode !== "general" && records.length > 0;
   nowcastingSection.hidden = !show;
   if (!show) {
     nowcastingSummaryElement.innerHTML = "";
@@ -605,16 +644,70 @@ function renderNowcastingSection(features) {
   attachAlertCardEvents();
 }
 
+function renderCompareSection(records) {
+  if (!compareSection || !compareAlertsElement) return;
+  const show = mapMode === "compare" && records.length > 0;
+  compareSection.hidden = !show;
+  if (!show) {
+    compareAlertsElement.innerHTML = "";
+    return;
+  }
+
+  const visibleRecords = records.slice(0, 4);
+  const overflow = records.length > visibleRecords.length
+    ? `<p class="compare-overflow-note">Sunt disponibile ${escapeHtml(records.length)} avertizări; folosește filtrele pentru izolare.</p>`
+    : "";
+  compareAlertsElement.innerHTML = `
+    ${visibleRecords.map((record) => compareAlertCardHtml(record)).join("")}
+    ${overflow}
+  `;
+  attachCompareEvents();
+}
+
+function compareAlertCardHtml(record) {
+  const max = safeNumber(record.cod_culoare_max, 0);
+  const phenomenon = recordPrimaryPhenomenon(record);
+  return `
+    <article class="compare-alert-card lvl-${max} ${isNowcastingRecord(record) ? "nowcasting-card" : ""}" data-alert-id="${escapeHtml(record.alert_id)}">
+      <div class="alert-card-head">
+        <div>
+          <p class="section-kicker">${sourceBadge(record.source)}</p>
+          <h3>${escapeHtml(COD_NAME[max] || "-")} — ${escapeHtml(phenomenon)}</h3>
+        </div>
+        ${codeChip(max)}
+      </div>
+      <div class="compare-meta">
+        <span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</span>
+        <span>${escapeHtml(pluralZones(safeNumber(record.judete_count, 0)))}</span>
+      </div>
+      <button type="button" class="mini-button compare-card-action compare-isolate" data-alert-id="${escapeHtml(record.alert_id)}">Vezi această hartă</button>
+    </article>
+  `;
+}
+
+function attachCompareEvents() {
+  document.querySelectorAll(".compare-isolate").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.alertId;
+      if (!id) return;
+      visibleAlertIds = new Set([id]);
+      syncIndexAliases();
+      if (mapModeSelect) mapModeSelect.value = "alert";
+      updateDashboard();
+    });
+  });
+}
+
 function alertCardHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
   const message = DOMPurify.sanitize(record.text_alerta_html || "");
   const checked = visibleAlertIds.has(record.alert_id) ? "checked" : "";
   const phenomenon = recordPrimaryPhenomenon(record);
   return `
-    <article class="alert-card lvl-${max}" data-alert-id="${escapeHtml(record.alert_id)}">
+    <article class="alert-card lvl-${max} ${isNowcastingRecord(record) ? "nowcasting-card" : ""}" data-alert-id="${escapeHtml(record.alert_id)}">
       <div class="alert-card-head">
         <div>
-          <p class="section-kicker">${escapeHtml(sourceLabel(record.source))}</p>
+          <p class="section-kicker">${sourceBadge(record.source)}</p>
           <h3>Cod maxim: ${escapeHtml(COD_NAME[max] || "-")} — ${escapeHtml(phenomenon)}</h3>
         </div>
         ${codeChip(max)}
@@ -650,6 +743,7 @@ function attachAlertCardEvents() {
       if (!id) return;
       if (input.checked) visibleAlertIds.add(id);
       else visibleAlertIds.delete(id);
+      syncIndexAliases();
       updateDashboard();
     });
   });
@@ -658,6 +752,7 @@ function attachAlertCardEvents() {
       const id = button.dataset.alertId;
       if (!id) return;
       visibleAlertIds = new Set([id]);
+      syncIndexAliases();
       if (mapModeSelect) mapModeSelect.value = "alert";
       updateDashboard();
     });
@@ -667,6 +762,7 @@ function attachAlertCardEvents() {
       const id = button.dataset.alertId;
       if (!id) return;
       visibleAlertIds.delete(id);
+      syncIndexAliases();
       updateDashboard();
     });
   });
@@ -1175,6 +1271,11 @@ function compactPhenomenon(text) {
 function sourceLabel(source) {
   if (!source) return "General ANM";
   return String(source).toLowerCase().includes("nowcasting") ? "Nowcasting" : "General ANM";
+}
+
+function sourceBadge(source) {
+  const isNowcasting = String(source || "").toLowerCase().includes("nowcasting");
+  return `<span class="source-badge ${isNowcasting ? "nowcasting" : "general"}">${escapeHtml(isNowcasting ? "Nowcasting" : "General ANM")}</span>`;
 }
 
 function presentCodesHtml(record) {

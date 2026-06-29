@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=2026-06-29-dashboard4">
+    <link rel="stylesheet" href="css/style.css?v=stormglass1">
   </head>
   <body>
     <header class="app-header dashboard-header">
@@ -38,6 +38,7 @@
             <span>Sursă</span>
             <select id="source-filter">
               <option value="general">General ANM</option>
+              <option value="nowcasting">Nowcasting</option>
               <option value="all">General + Nowcasting</option>
             </select>
           </label>
@@ -63,6 +64,7 @@
               <option value="max">Cod maxim pe județ</option>
               <option value="phenomenon">Pe fenomen</option>
               <option value="alert">Pe avertizare ANM</option>
+              <option value="compare">Compară avertizările</option>
             </select>
           </label>
 
@@ -102,6 +104,16 @@
           </div>
         </div>
         <div id="alerts-summary" class="alerts-summary empty-state">Nu există avertizări încărcate.</div>
+      </section>
+
+      <section class="compare-section" id="compare-section" aria-labelledby="compare-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Comparare</p>
+            <h2 id="compare-title">Compară avertizările</h2>
+          </div>
+        </div>
+        <div id="compare-alerts" class="compare-alerts"></div>
       </section>
 
       <section class="nowcasting-section" id="nowcasting-section" aria-labelledby="nowcasting-title" hidden>
@@ -162,6 +174,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=2026-06-29-dashboard4"></script>
+    <script src="js/app.js?v=stormglass1"></script>
   </body>
 </html>
