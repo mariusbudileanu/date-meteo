@@ -1,6 +1,6 @@
 # MeteoAlertRO
 
-MeteoAlertRO este un proiect static care descarca avertizarile ANM, combina fluxurile General si Nowcasting si publica o harta Leaflet cu alertele meteo pentru Romania.
+MeteoAlertRO este un proiect static care descarca avertizarile ANM, combina fluxurile General si Nowcasting, arhiveaza avertizarile in CSV-uri lunare si publica o harta Leaflet cu situatia meteo pe zile pentru Romania.
 
 ## Rulare locala
 
@@ -18,17 +18,30 @@ Scraperul citeste:
 
 Daca un endpoint esueaza, celalalt continua sa fie procesat. Geometriile `POLYGON` si `MULTIPOLYGON` din `coordGis` sunt interpretate ca EPSG:3857 si reproiectate obligatoriu in EPSG:4326, cu coordonate GeoJSON `[longitude, latitude]`.
 
-Lipsa codului de culoare, valorile goale, `null`, `0` sau necunoscute sunt tratate ca `Verde`.
+Scraperul trateaza fiecare element `<avertizare>` ca o fereastra logica de valabilitate. `dataAparitiei` este pastrata ca data de emitere, iar intervalul real este extras din `intervalul` sau din textul mesajului ANM, cu `dataExpirarii` ca sfarsit sigur al ferestrei.
+
+Lipsa codului de culoare, valorile goale, `null`, `0` sau necunoscute sunt tratate ca `Verde`. Fisierele zilnice coloreaza doar zonele cu cod mai mare decat 0, iar `judete.geojson` ofera stratul de baza verde.
 
 ## Date generate
 
 La fiecare rulare se scriu fisiere in `public/data/`:
 
 - `latest.geojson`
-- `YYYY-MM-DD.geojson`, doar cand exista cel putin un feature valid
-- `index.json`
+- `YYYY-MM-DD.geojson`, pentru fiecare zi acoperita de ferestrele ANM curente
+- `index.json`, cu `dates` ca obiect pentru calendar
+- `judete.geojson`
+- `history_stats.json`
 
-Daca nu exista alerte valide, `latest.geojson` ramane un `FeatureCollection` gol, iar data curenta nu este adaugata in `index.json`.
+Pentru fiecare zi, scraperul rezolva o singura geometrie pe judet/zona prin severitatea maxima din avertizarile active in acea data. Daca nu exista alerte valide, `latest.geojson` ramane un `FeatureCollection` gol, cu metadata despre cauza.
+
+Arhiva descarcabila se scrie in `public/istoric/`:
+
+- `istoric/YYYY/YYYY-MM.csv`
+- `istoric/index.json`
+- `istoric/toate-alertele.csv`
+- `istoric/README.md`
+
+CSV-urile lunare folosesc UTF-8-SIG pentru compatibilitate cu Excel si sunt actualizate idempotent pe `alert_id` stabil.
 
 ## Frontend
 
@@ -45,6 +58,6 @@ Frontend-ul foloseste HTML, CSS si JavaScript simplu, Leaflet pentru harta si DO
 
 ## GitHub Pages
 
-Workflow-ul `.github/workflows/scrape_and_deploy.yml` ruleaza de 4 ori pe zi si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite doar modificarile din `public/data/` si publica folderul `public/` prin GitHub Pages.
+Workflow-ul `.github/workflows/scrape_and_deploy.yml` ruleaza de 4 ori pe zi si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite modificarile din `public/data/` si `public/istoric/`, apoi publica folderul `public/` prin GitHub Pages.
 
 Daca Pages nu se activeaza automat, mergi in GitHub la `Settings` -> `Pages` si seteaza `Source` la `GitHub Actions`.

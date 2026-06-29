@@ -1,120 +1,77 @@
 {
-  "generated_at_utc": "2026-06-29T02:33:51Z",
+  "generated_at_utc": "2026-06-29T07:41:19Z",
+  "today": "2026-06-29",
   "latest_file": "latest.geojson",
-  "alerts_found_raw": true,
-  "raw_alert_count": 3,
-  "coord_gis_count": 88,
-  "alert_count": 2,
-  "features_with_geometry": 88,
-  "feature_count": 88,
-  "bbox": [
-    20.262020668057986,
-    43.61901955252269,
-    29.715299275271907,
-    48.26538628420747
-  ],
-  "reason": null,
-  "sources": {
-    "General": {
-      "bytes": 461477,
-      "raw_alert_count": 2,
-      "coord_gis_count": 88
+  "latest_date": "2026-06-29",
+  "dates": {
+    "2026-06-29": {
+      "file": "2026-06-29.geojson",
+      "alert_count": 1,
+      "feature_count": 44,
+      "max_color": 3,
+      "color_counts": {
+        "2": 6,
+        "3": 38
+      }
     },
-    "Nowcasting": {
-      "bytes": 646,
-      "raw_alert_count": 1,
-      "coord_gis_count": 0
+    "2026-06-30": {
+      "file": "2026-06-30.geojson",
+      "alert_count": 2,
+      "feature_count": 50,
+      "max_color": 3,
+      "color_counts": {
+        "1": 6,
+        "2": 6,
+        "3": 38
+      }
+    },
+    "2026-07-01": {
+      "file": "2026-07-01.geojson",
+      "alert_count": 3,
+      "feature_count": 60,
+      "max_color": 3,
+      "color_counts": {
+        "1": 16,
+        "2": 6,
+        "3": 38
+      }
     }
   },
-  "dates": [
-    "2026-06-27",
-    "2026-06-28",
-    "2026-06-29",
-    "2026-06-30",
-    "2026-07-01"
-  ],
   "files": [
-    {
-      "date": "2026-06-27",
-      "file": "2026-06-27.geojson",
-      "alert_count": 2,
-      "feature_count": 88,
-      "codes": [
-        "Galben",
-        "Portocaliu",
-        "Roșu"
-      ],
-      "phenomena": [
-        "temperaturi extreme, noapte tropicală și disconfort termic deosebit de accentuat",
-        "temperaturi extreme, nopți tropicale și disconfort termic deosebit de accentuat",
-        "val de căldură intens, caniculă, noapte tropicală și disconfort termic accentuat",
-        "val de căldură intens, caniculă, nopți tropicale, disconfort termic accentuat",
-        "val de căldură, temperaturi deosebit de ridicate, noapte tropicală și disconfort termic"
-      ]
-    },
-    {
-      "date": "2026-06-28",
-      "file": "2026-06-28.geojson",
-      "alert_count": 2,
-      "feature_count": 88,
-      "codes": [
-        "Galben",
-        "Portocaliu",
-        "Roșu"
-      ],
-      "phenomena": [
-        "temperaturi extreme, noapte tropicală și disconfort termic deosebit de accentuat",
-        "temperaturi extreme, nopți tropicale și disconfort termic deosebit de accentuat",
-        "val de căldură intens, caniculă, noapte tropicală și disconfort termic accentuat",
-        "val de căldură intens, caniculă, nopți tropicale, disconfort termic accentuat",
-        "val de căldură, temperaturi deosebit de ridicate, noapte tropicală și disconfort termic"
-      ]
-    },
     {
       "date": "2026-06-29",
       "file": "2026-06-29.geojson",
-      "alert_count": 2,
-      "feature_count": 88,
-      "codes": [
-        "Galben",
-        "Portocaliu",
-        "Roșu"
-      ],
-      "phenomena": [
-        "temperaturi extreme, noapte tropicală și disconfort termic deosebit de accentuat",
-        "temperaturi extreme, nopți tropicale și disconfort termic deosebit de accentuat",
-        "val de căldură intens, caniculă, noapte tropicală și disconfort termic accentuat",
-        "val de căldură intens, caniculă, nopți tropicale, disconfort termic accentuat",
-        "val de căldură, temperaturi deosebit de ridicate, noapte tropicală și disconfort termic"
-      ]
+      "alert_count": 1,
+      "feature_count": 44,
+      "max_color": 3,
+      "color_counts": {
+        "2": 6,
+        "3": 38
+      }
     },
     {
       "date": "2026-06-30",
       "file": "2026-06-30.geojson",
-      "alert_count": 1,
-      "feature_count": 44,
-      "codes": [
-        "Portocaliu",
-        "Roșu"
-      ],
-      "phenomena": [
-        "temperaturi extreme, nopți tropicale și disconfort termic deosebit de accentuat",
-        "val de căldură intens, caniculă, nopți tropicale, disconfort termic accentuat"
-      ]
+      "alert_count": 2,
+      "feature_count": 50,
+      "max_color": 3,
+      "color_counts": {
+        "1": 6,
+        "2": 6,
+        "3": 38
+      }
     },
     {
       "date": "2026-07-01",
       "file": "2026-07-01.geojson",
-      "alert_count": 1,
-      "feature_count": 44,
-      "codes": [
-        "Portocaliu",
-        "Roșu"
-      ],
-      "phenomena": [
-        "temperaturi extreme, nopți tropicale și disconfort termic deosebit de accentuat",
-        "val de căldură intens, caniculă, nopți tropicale, disconfort termic accentuat"
-      ]
+      "alert_count": 3,
+      "feature_count": 60,
+      "max_color": 3,
+      "color_counts": {
+        "1": 16,
+        "2": 6,
+        "3": 38
+      }
     }
   ]
 }

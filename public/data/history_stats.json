@@ -1,0 +1,788 @@
+{
+  "generated_at_utc": "2026-06-29T07:37:56Z",
+  "county_count": 66,
+  "counties": [
+    {
+      "judet_cod": "AB",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "AB_munte_1",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "AB_munte_2",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "AG",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "AG_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "AR",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 2
+      }
+    },
+    {
+      "judet_cod": "AR_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "B",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BC",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "BH",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "BH_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BN",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "BN_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BR",
+      "alert_count": 2,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "2": 2
+      }
+    },
+    {
+      "judet_cod": "BT",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "BV",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "BV_munte_1",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BV_munte_2",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BZ",
+      "alert_count": 3,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "2": 2,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "BZ_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "CJ",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "CJ_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "CL",
+      "alert_count": 3,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "2": 1,
+        "1": 2
+      }
+    },
+    {
+      "judet_cod": "CS",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "CT",
+      "alert_count": 2,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "2": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "CV",
+      "alert_count": 4,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 2,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "DB",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "DB_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "DJ",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "GJ",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "GJ_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "GL",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "GR",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "HD",
+      "alert_count": 4,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 2,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "HR",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "HR_depresiuni",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "HR_munte_1",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "HR_munte_2",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "IF",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "IL",
+      "alert_count": 3,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "2": 1,
+        "1": 2
+      }
+    },
+    {
+      "judet_cod": "IS",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "MH",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "MH_munte_1",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "MH_munte_2",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "MM",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "MM_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "MS",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "MS_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "NT",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "OT",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "PH",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "PH_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "SB",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "SB_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "SJ",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "SJ_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "SM",
+      "alert_count": 3,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "SV",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "TL",
+      "alert_count": 2,
+      "max_color": 2,
+      "max_color_name": "Portocaliu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "2": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "TM",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "TM_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "TR",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "VL",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T23:00",
+      "last_alert_id": "general-8f171d45a7f600b1",
+      "color_counts": {
+        "3": 1,
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "VL_munte",
+      "alert_count": 1,
+      "max_color": 1,
+      "max_color_name": "Galben",
+      "last_alert_end": "2026-06-30T23:00",
+      "last_alert_id": "general-eb2a13e16a7a305f",
+      "color_counts": {
+        "1": 1
+      }
+    },
+    {
+      "judet_cod": "VN",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    },
+    {
+      "judet_cod": "VS",
+      "alert_count": 2,
+      "max_color": 3,
+      "max_color_name": "Roșu",
+      "last_alert_end": "2026-07-01T21:00",
+      "last_alert_id": "general-6ffccc258946acc1",
+      "color_counts": {
+        "3": 1,
+        "2": 1
+      }
+    }
+  ]
+}

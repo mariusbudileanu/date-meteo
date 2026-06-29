@@ -1,0 +1,26 @@
+{
+  "generated_at_utc": "2026-06-29T07:37:56Z",
+  "schema": "meteoalertro-history-v1",
+  "total_alert_count": 4,
+  "rollup_csv": "istoric/toate-alertele.csv",
+  "months": [
+    {
+      "month": "2026-06",
+      "path": "istoric/2026/2026-06.csv",
+      "alert_count": 2,
+      "first_alert": "2026-06-29",
+      "last_alert": "2026-07-01",
+      "max_color": 3,
+      "max_color_name": "Roșu"
+    },
+    {
+      "month": "2026-07",
+      "path": "istoric/2026/2026-07.csv",
+      "alert_count": 2,
+      "first_alert": "2026-07-01",
+      "last_alert": "2026-07-01",
+      "max_color": 2,
+      "max_color_name": "Portocaliu"
+    }
+  ]
+}
