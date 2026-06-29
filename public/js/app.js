@@ -4,21 +4,41 @@ const ROMANIA_BOUNDS = [
   [48.8, 30.0],
 ];
 
-const NO_ALERTS_MESSAGE = "Nu există avertizări înregistrate pentru această dată.";
-const EMPTY_MESSAGE = "Nu au fost emise sau valabile avertizări pentru această dată.";
+const NO_ALERTS_MESSAGE = "Nu există avertizări arhivate pentru această dată.";
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
-const COD_COLOR = { 0: "#34D399", 1: "#FACC15", 2: "#FB923C", 3: "#F43F5E" };
-const COD_NAME = { 0: "Verde", 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
+const COD_COLOR = { 1: "#FACC15", 2: "#FB923C", 3: "#F43F5E" };
+const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
+const COUNTY_CODES = new Set([
+  "AB", "AR", "AG", "B", "BC", "BH", "BN", "BR", "BT", "BV", "BZ", "CJ", "CL", "CS", "CT", "CV",
+  "DB", "DJ", "GJ", "GL", "GR", "HD", "HR", "IF", "IL", "IS", "MH", "MM", "MS", "NT", "OT",
+  "PH", "SB", "SJ", "SM", "SV", "TL", "TM", "TR", "VL", "VN", "VS",
+]);
+
+const PHENOMENA = [
+  { value: "all", label: "Toate fenomenele" },
+  { value: "heat", label: "Temperaturi extreme / caniculă" },
+  { value: "rain", label: "Ploi" },
+  { value: "storm", label: "Vijelii" },
+  { value: "snow", label: "Ninsori" },
+  { value: "blizzard", label: "Viscol" },
+  { value: "fog", label: "Ceață" },
+  { value: "ice", label: "Polei" },
+  { value: "other", label: "Alte fenomene" },
+];
 
 const statusElement = document.getElementById("status");
 const lastUpdatedElement = document.getElementById("last-updated");
 const daySummaryElement = document.getElementById("day-summary");
-const datePicker = document.getElementById("alert-date-picker"); // optional
 const latestButton = document.getElementById("latest-alerts-button");
-const nowcastingToggle = document.getElementById("toggle-nowcasting");
 const calendarElement = document.getElementById("calendar");
+const sourceFilter = document.getElementById("source-filter");
+const phenomenonFilter = document.getElementById("phenomenon-filter");
+const severityFilter = document.getElementById("severity-filter");
+const mapModeSelect = document.getElementById("map-mode");
 const featureDetailsElement = document.getElementById("feature-details");
 const alertsSummaryElement = document.getElementById("alerts-summary");
+const nowcastingSection = document.getElementById("nowcasting-section");
+const nowcastingSummaryElement = document.getElementById("nowcasting-summary");
 const countySelector = document.getElementById("county-selector");
 const countyHistoryElement = document.getElementById("county-history");
 const downloadsTableBody = document.getElementById("downloads-table-body");
@@ -26,14 +46,17 @@ const downloadsTableBody = document.getElementById("downloads-table-body");
 let dataIndex = { dates: {}, files: [] };
 let historyStats = { counties: [] };
 let alertsLayer = null;
-let nowcastingLayer = null;
 let baseCountyLayer = null;
 let selectedDate = "";
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
-let showNowcasting = false;
 let currentData = null;
 let currentDateLabel = "";
+let currentFeatures = [];
+let currentRecords = [];
+let currentIndexes = emptyIndexes();
+let visibleAlertIds = new Set();
+let selectedCountyKey = "";
 
 const map = L.map("alerts-map", { center: ROMANIA_CENTER, zoom: 7, minZoom: 5, maxZoom: 12 });
 
@@ -47,12 +70,9 @@ map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
 setTimeout(() => map.invalidateSize(true), 500);
 setTimeout(() => map.invalidateSize(true), 1500);
 
+populatePhenomenonFilter();
 addLegend();
 start();
-
-function setDatePicker(value) {
-  if (datePicker) datePicker.value = value;
-}
 
 async function start() {
   dataIndex = await loadIndex();
@@ -60,21 +80,16 @@ async function start() {
 
   const initialDate = dataIndex.latest_date || preferredInitialDate();
   selectedDate = initialDate;
-  setDatePicker(initialDate || todayIso());
   setCalendarView(initialDate || todayIso());
   renderCalendar();
-  renderDaySummary({ date: initialDate }, [], initialDate);
+  renderEmptyDashboard(initialDate || todayIso(), "Se încarcă avertizările...");
 
-  if (datePicker) datePicker.addEventListener("change", () => showDate(datePicker.value));
-  if (latestButton) latestButton.addEventListener("click", () => loadLatestAlerts());
-  if (countySelector) countySelector.addEventListener("change", () => renderCountyHistory(countySelector.value));
-  if (nowcastingToggle) {
-    showNowcasting = nowcastingToggle.checked;
-    nowcastingToggle.addEventListener("change", () => {
-      showNowcasting = nowcastingToggle.checked;
-      if (currentData) renderAlertData(currentData, currentDateLabel);
-    });
-  }
+  latestButton?.addEventListener("click", () => loadLatestAlerts());
+  sourceFilter?.addEventListener("change", () => updateDashboard());
+  phenomenonFilter?.addEventListener("change", () => updateDashboard());
+  severityFilter?.addEventListener("change", () => updateDashboard());
+  mapModeSelect?.addEventListener("change", () => updateDashboard());
+  countySelector?.addEventListener("change", () => renderCountyHistory(countySelector.value));
 
   await Promise.all([loadBaseCounties(), loadHistoryStats(), renderDownloads()]);
   await loadLatestAlerts();
@@ -98,23 +113,22 @@ async function loadIndex() {
 async function loadLatestAlerts() {
   setStatus("Se încarcă ultimele avertizări ANM...");
   try {
-    const data = await fetchJson("data/latest.geojson");
+    const data = applyDemoOverlap(await fetchJson("data/latest.geojson"));
     const dateLabel = data.metadata?.latest_for_date || data.metadata?.date || dataIndex.latest_date || selectedDate;
-    renderAlertData(data, dateLabel);
+    renderAlertData(data, dateLabel, true);
   } catch (error) {
     console.error("latest.geojson could not be loaded", error);
-    renderNoAlerts(EMPTY_MESSAGE, selectedDate || todayIso());
+    renderEmptyDay(selectedDate || todayIso());
   }
 }
 
 async function showDate(dateString) {
   if (!dateString) {
-    renderNoAlerts(NO_ALERTS_MESSAGE, "");
+    renderEmptyDay("");
     return;
   }
 
   selectedDate = dateString;
-  setDatePicker(dateString);
   setCalendarView(dateString);
   renderCalendar();
 
@@ -126,288 +140,411 @@ async function showDate(dateString) {
   setStatus("Se încarcă avertizările ANM pentru data selectată...");
   const file = dataIndex.dates?.[dateString]?.file || `${dateString}.geojson`;
   try {
-    const data = await fetchJson(`data/${file}`);
-    renderAlertData(data, dateString);
+    const data = applyDemoOverlap(await fetchJson(`data/${file}`));
+    renderAlertData(data, dateString, true);
   } catch (error) {
     console.warn(`No alert file for ${dateString}`, error);
     renderEmptyDay(dateString);
   }
 }
 
-function renderAlertData(data, dateLabel) {
+function renderAlertData(data, dateLabel, resetVisibility) {
   currentData = data;
-  currentDateLabel = dateLabel;
+  currentDateLabel = dateLabel || data.metadata?.date || selectedDate || todayIso();
+  currentFeatures = Array.isArray(data.features) ? data.features : [];
+  currentRecords = normalizedActiveRecords(data.metadata || {}, currentFeatures);
 
-  const allFeatures = Array.isArray(data.features) ? data.features : [];
-  const metadata = data.metadata || {};
-  const effectiveDate = dateLabel || metadata.date || selectedDate || dataIndex.latest_date || todayIso();
-  selectedDate = effectiveDate;
-  setDatePicker(effectiveDate);
-  setCalendarView(effectiveDate);
+  if (resetVisibility) {
+    visibleAlertIds = new Set(currentRecords.map((record) => record.alert_id).filter(Boolean));
+  }
+  currentIndexes = buildIndexes(currentRecords, currentFeatures);
+
+  selectedDate = currentDateLabel;
+  selectedCountyKey = "";
+  setCalendarView(selectedDate);
   renderCalendar();
-
-  clearAlertsLayer();
-  renderSelectedFeature(null);
-
-  const generalFeatures = allFeatures.filter((f) => (f.properties?.source || "general") !== "nowcasting");
-  const nowcastingFeatures = allFeatures.filter((f) => f.properties?.source === "nowcasting");
-  const visibleFeatures = showNowcasting ? [...generalFeatures, ...nowcastingFeatures] : generalFeatures;
-
-  if (generalFeatures.length) {
-    alertsLayer = L.geoJSON({ type: "FeatureCollection", features: generalFeatures }, {
-      style: getAlertStyle,
-      onEachFeature: onEachAlertFeature,
-    }).addTo(map);
-  }
-  if (showNowcasting && nowcastingFeatures.length) {
-    nowcastingLayer = L.geoJSON({ type: "FeatureCollection", features: nowcastingFeatures }, {
-      style: getNowcastingStyle,
-      onEachFeature: onEachAlertFeature,
-    }).addTo(map);
-  }
-
-  renderDaySummary(metadata, visibleFeatures, effectiveDate);
-  renderAlertsSummary(metadata, visibleFeatures);
-
-  const hasGeneral = generalFeatures.length > 0;
-  const hasNowcasting = nowcastingFeatures.length > 0;
-
-  if (!hasGeneral && (!showNowcasting || !hasNowcasting)) {
-    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-    const ncCount = safeNumber(metadata.nowcasting_count, nowcastingFeatures.length);
-    const note = hasNowcasting
-      ? `${NO_ALERTS_MESSAGE} (${ncCount} avertizări nowcasting disponibile, activează afișarea pentru a le vedea)`
-      : emptyMessageFor(metadata);
-    setStatus(note);
-    return;
-  }
-
-  renderStatus(metadata, visibleFeatures, effectiveDate);
-
-  requestAnimationFrame(() => refitMapToCurrentLayer());
-  setTimeout(() => {
-    map.invalidateSize(true);
-    refitMapToCurrentLayer();
-  }, 800);
+  updateDashboard();
 }
 
-function renderNoAlerts(message, dateLabel) {
-  clearAlertsLayer();
-  renderSelectedFeature(null);
-  renderDaySummary({ date: dateLabel }, [], dateLabel);
-  renderAlertsSummary({ active_alerts: [] }, []);
-  map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-  setStatus(message || (dateLabel ? `${NO_ALERTS_MESSAGE} pentru ${dateLabel}` : NO_ALERTS_MESSAGE));
+function updateDashboard() {
+  const visibleFeatures = getVisibleFeatures({ respectVisibleAlertIds: true });
+  const cardFeatures = getVisibleFeatures({ respectVisibleAlertIds: false });
+  const cardRecords = recordsMatchingFeatures(cardFeatures);
+  const nowcastingFeatures = cardFeatures.filter(isNowcastingFeature);
+
+  renderDaySummary(visibleFeatures, selectedDate);
+  renderStatus(visibleFeatures, selectedDate);
+  renderMap(visibleFeatures);
+  renderAlertsSummary(cardRecords);
+  renderNowcastingSection(nowcastingFeatures);
+
+  if (selectedCountyKey) {
+    const countyFeatures = visibleFeatures.filter((feature) => countyKey(feature) === selectedCountyKey);
+    if (countyFeatures.length) renderCountyPanel(countyFeatures);
+    else renderSelectedEmpty();
+  } else {
+    renderSelectedEmpty();
+  }
+  publishDebugState(visibleFeatures, cardRecords);
+}
+
+function publishDebugState(visibleFeatures, cardRecords) {
+  const aggregateFeatures = aggregateFeaturesByCounty(visibleFeatures);
+  const byCounty = Object.fromEntries(
+    aggregateFeatures.map((feature) => [
+      feature.properties.county_key,
+      {
+        countyName: feature.properties.county_name,
+        alertCount: feature.properties.alert_count,
+        maxCode: feature.properties.max_code,
+        secondaryCode: feature.properties.secondary_code,
+        hasOverlap: feature.properties.has_overlap,
+        clickPoint: featureClickPoint(feature),
+        alertIds: (feature.properties.features || []).map((item) => item.properties?.alert_id),
+        phenomena: (feature.properties.features || []).map((item) => item.properties?.fenomen_principal),
+        codes: (feature.properties.features || []).map((item) => item.properties?.cod_culoare),
+      },
+    ])
+  );
+
+  const debugState = {
+    date: currentDateLabel,
+    source: sourceFilter?.value || "general",
+    phenomenon: phenomenonFilter?.value || "all",
+    severity: severityFilter?.value || "all",
+    mode: mapModeSelect?.value || "max",
+    visibleAlertIds: [...visibleAlertIds],
+    alertIds: currentRecords.map((record) => record.alert_id),
+    cardAlertIds: cardRecords.map((record) => record.alert_id),
+    visibleFeatureCount: visibleFeatures.length,
+    byCounty,
+  };
+
+  window.__meteoDashboard = {
+    ...debugState,
+    pointForLatLng(lat, lng) {
+      const point = map.latLngToContainerPoint([lat, lng]);
+      const rect = map.getContainer().getBoundingClientRect();
+      return {
+        x: Math.round(rect.left + point.x),
+        y: Math.round(rect.top + point.y),
+      };
+    },
+  };
+  publishDebugNode(debugState);
+}
+
+function featureClickPoint(feature) {
+  try {
+    const bounds = L.geoJSON(feature).getBounds();
+    const center = bounds.getCenter();
+    const point = map.latLngToContainerPoint(center);
+    const rect = map.getContainer().getBoundingClientRect();
+    return {
+      lat: center.lat,
+      lng: center.lng,
+      x: Math.round(rect.left + point.x),
+      y: Math.round(rect.top + point.y),
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function publishDebugNode(state) {
+  let node = document.getElementById("dashboard-debug-state");
+  if (!node) {
+    node = document.createElement("script");
+    node.type = "application/json";
+    node.id = "dashboard-debug-state";
+    document.body.appendChild(node);
+  }
+  node.textContent = JSON.stringify(state);
 }
 
 function renderEmptyDay(dateString) {
   currentData = null;
+  currentDateLabel = dateString;
+  currentFeatures = [];
+  currentRecords = [];
+  currentIndexes = emptyIndexes();
+  visibleAlertIds = new Set();
+  selectedCountyKey = "";
   selectedDate = dateString;
-  setDatePicker(dateString);
   setCalendarView(dateString);
   renderCalendar();
-  renderNoAlerts(NO_ALERTS_MESSAGE, dateString);
+  renderEmptyDashboard(dateString, NO_ALERTS_MESSAGE);
 }
 
-function renderLastUpdated(value) {
-  if (!lastUpdatedElement) return;
-  lastUpdatedElement.textContent = `Ultima actualizare: ${formatUtcStamp(value) || "necunoscută"}`;
+function renderEmptyDashboard(dateString, message) {
+  clearAlertsLayer();
+  map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+  renderDaySummary([], dateString);
+  renderSelectedEmpty(message === NO_ALERTS_MESSAGE ? "Nu există avertizări pentru data selectată." : "Selectează un județ colorat pentru detalii.");
+  alertsSummaryElement.classList.add("empty-state");
+  alertsSummaryElement.innerHTML = message;
+  renderNowcastingSection([]);
+  setStatus(message);
+  publishDebugState([], []);
 }
 
-function renderStatus(metadata, features, dateLabel) {
-  const alertCount = safeNumber(metadata?.alert_count, countDistinctAlerts(features));
-  const featureCount = safeNumber(metadata?.feature_count, features.length);
-  const maxCode = maxCodeFromRecords(normalizedActiveRecords(metadata, features), features, dataIndex.dates?.[dateLabel]?.max_color);
-  let text = `${formatDisplayDate(dateLabel)} · ${pluralAnmAlerts(alertCount)} · ${pluralZones(featureCount)} · cod maxim ${COD_NAME[maxCode] || "Verde"}`;
-  const nowcasting = safeNumber(metadata?.nowcasting_count, 0);
-  if (nowcasting > 0 && !showNowcasting) {
-    text += ` · ${nowcasting} nowcasting ascuns`;
-  }
-  setStatus(text);
+function getVisibleFeatures({ respectVisibleAlertIds }) {
+  return currentFeatures.filter((feature) => {
+    const props = feature.properties || {};
+    const alertId = props.alert_id || "";
+    const sourceOk = sourceFilter?.value === "all" || !isNowcastingFeature(feature);
+    const phenomenonOk = phenomenonFilter?.value === "all" || normalizePhenomenon(feature) === phenomenonFilter?.value;
+    const severityOk = severityFilter?.value === "all" || String(safeNumber(props.cod_culoare, 0)) === severityFilter?.value;
+    const alertOk = !respectVisibleAlertIds || !alertId || visibleAlertIds.has(alertId);
+    return sourceOk && phenomenonOk && severityOk && alertOk;
+  });
 }
 
-function renderDaySummary(metadata, features, dateLabel) {
-  if (!daySummaryElement) return;
+function renderDaySummary(features, dateLabel) {
+  const alertCount = countDistinctAlerts(features);
+  const zoneCount = countDistinctCounties(features);
+  const maxCode = maxCodeFromFeatures(features);
+  const phenomena = activePhenomenaLabels(features);
+  const dateText = formatDisplayDate(dateLabel || selectedDate || todayIso());
+  const updated = formatUtcStamp(dataIndex.generated_at_utc) || "necunoscută";
 
-  const indexInfo = dataIndex.dates?.[dateLabel] || {};
-  const records = normalizedActiveRecords(metadata, features);
-  const alertCount = safeNumber(metadata?.alert_count, safeNumber(indexInfo.alert_count, countDistinctAlerts(features)));
-  const featureCount = safeNumber(metadata?.feature_count, safeNumber(indexInfo.feature_count, features.length));
-  const maxCode = maxCodeFromRecords(records, features, indexInfo.max_color);
-  const hasAlerts = alertCount > 0 || featureCount > 0 || records.length > 0;
-
-  if (!hasAlerts) {
-    const reason = metadata?.alerts_found_raw ? (metadata.reason || EMPTY_MESSAGE) : NO_ALERTS_MESSAGE;
+  if (!features.length) {
     daySummaryElement.innerHTML = `
-      <div class="summary-card summary-card-date">
-        <span class="summary-label">Data selectată</span>
-        <strong>${escapeHtml(formatDisplayDate(dateLabel || selectedDate || todayIso()))}</strong>
-      </div>
-      <div class="summary-empty">
-        <strong>${escapeHtml(reason)}</strong>
-        <span>Harta rămâne centrată pe România.</span>
-      </div>
+      ${summaryCard("Data selectată", dateText)}
+      ${summaryCard("Avertizări ANM", pluralAnmAlerts(0))}
+      ${summaryCard("Zone afectate", pluralZones(0))}
+      ${summaryCard("Cod maxim", "Fără cod")}
+      ${summaryCard("Fenomene active", "Nicio avertizare")}
+      ${summaryCard("Ultima actualizare", updated)}
     `;
     return;
   }
 
   daySummaryElement.innerHTML = `
-    ${summaryCard("Data selectată", formatDisplayDate(dateLabel))}
-    ${summaryCard("Avertizări ANM", alertCount)}
-    ${summaryCard("Zone afectate", featureCount)}
-    ${summaryCard("Cod maxim", codeChip(maxCode), "summary-code")}
-    ${summaryCard("Fenomene", summaryPhenomena(records, features), "summary-wide")}
-    ${summaryCard("Interval", summaryInterval(records, features), "summary-wide")}
+    ${summaryCard("Data selectată", dateText)}
+    ${summaryCard("Avertizări ANM", pluralAnmAlerts(alertCount))}
+    ${summaryCard("Zone afectate", pluralZones(zoneCount))}
+    ${summaryCard("Cod maxim", `Cod maxim: ${COD_NAME[maxCode] || "-"}`, `summary-code severity-${maxCode}`)}
+    ${summaryCard("Fenomene active", phenomena || PHENOMENON_FALLBACK)}
+    ${summaryCard("Ultima actualizare", updated)}
   `;
 }
 
-function renderSelectedFeature(feature) {
-  if (!feature) {
-    featureDetailsElement.classList.add("empty-state");
-    featureDetailsElement.innerHTML = "Click pe un județ colorat pentru detalii despre cod, fenomen și valabilitate.";
+function renderStatus(features, dateLabel) {
+  if (!features.length) {
+    setStatus(NO_ALERTS_MESSAGE);
+    return;
+  }
+  const nowcastingCount = features.filter(isNowcastingFeature).length;
+  const nowcastingText = nowcastingCount ? ` · ${nowcastingCount} zone nowcasting afișate` : "";
+  setStatus(`${formatDisplayDate(dateLabel)} · ${pluralAnmAlerts(countDistinctAlerts(features))} · ${pluralZones(countDistinctCounties(features))}${nowcastingText}`);
+}
+
+function renderMap(features) {
+  clearAlertsLayer();
+  if (!features.length) {
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
     return;
   }
 
+  const aggregateFeatures = aggregateFeaturesByCounty(features);
+  alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, {
+    style: aggregateStyle,
+    onEachFeature: onEachAggregateFeature,
+  }).addTo(map);
+
+  requestAnimationFrame(() => refitMapToCurrentLayer());
+  setTimeout(() => {
+    map.invalidateSize(true);
+    refitMapToCurrentLayer();
+  }, 500);
+}
+
+function aggregateFeaturesByCounty(features) {
+  const groups = new Map();
+  for (const feature of features) {
+    const key = countyKey(feature);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(feature);
+  }
+
+  return [...groups.entries()].map(([key, countyFeatures]) => {
+    const sorted = [...countyFeatures].sort((a, b) => safeNumber(b.properties?.cod_culoare, 0) - safeNumber(a.properties?.cod_culoare, 0));
+    const representative = sorted[0];
+    const codes = sortedUnique(sorted.map((feature) => safeNumber(feature.properties?.cod_culoare, 0)).filter((code) => code > 0)).sort((a, b) => b - a);
+    const alertIds = sortedUnique(sorted.map((feature) => feature.properties?.alert_id).filter(Boolean));
+    const hasNowcasting = sorted.some(isNowcastingFeature);
+    return {
+      type: "Feature",
+      geometry: representative.geometry,
+      properties: {
+        aggregate: true,
+        county_key: key,
+        county_name: representative.properties?.judet_nume || representative.properties?.judet_cod || key,
+        features: sorted,
+        alert_count: alertIds.length || sorted.length,
+        max_code: codes[0] || 0,
+        secondary_code: codes[1] || 0,
+        has_overlap: (alertIds.length || sorted.length) > 1,
+        has_nowcasting: hasNowcasting,
+      },
+    };
+  });
+}
+
+function aggregateStyle(feature) {
   const props = feature.properties || {};
-  const code = safeNumber(props.cod_culoare, props.culoare || 0);
-  const phenomenon = props.fenomen_principal || PHENOMENON_FALLBACK;
-  const source = sourceLabel(props.source || props.tip);
+  const code = safeNumber(props.max_code, 0);
+  const secondary = safeNumber(props.secondary_code, 0);
+  const color = COD_COLOR[code] || "#94a3b8";
+  const outline = props.has_overlap ? (COD_COLOR[secondary] || "#ffffff") : color;
+  return {
+    color: outline,
+    fillColor: color,
+    weight: props.has_overlap ? 3.4 : 1.5,
+    opacity: 1,
+    dashArray: props.has_overlap ? "5 3" : props.has_nowcasting ? "3 4" : null,
+    fillOpacity: code === 3 ? 0.64 : 0.56,
+    className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : ""].filter(Boolean).join(" "),
+  };
+}
+
+function onEachAggregateFeature(feature, layer) {
+  const props = feature.properties || {};
+  const code = safeNumber(props.max_code, 0);
+  const count = safeNumber(props.alert_count, 0);
+  layer.once("add", () => {
+    const element = layer.getElement?.();
+    if (!element) return;
+    element.classList.add("alert-county");
+    if (props.county_key) element.classList.add(`county-${props.county_key}`);
+    if (props.has_overlap) element.classList.add("has-overlap");
+  });
+  layer.bindPopup(`
+      <div class="compact-popup">
+        <strong>${escapeHtml(props.county_name || "Zonă afectată")}</strong>
+        <span>${escapeHtml(pluralActiveAlerts(count))}</span>
+        <span>Cod maxim: ${escapeHtml(COD_NAME[code] || "-")}</span>
+      </div>
+  `);
+  layer.on({
+    click: () => {
+      selectedCountyKey = props.county_key || "";
+      renderCountyPanel(props.features || []);
+    },
+    mouseover: () => layer.setStyle({ weight: props.has_overlap ? 4.4 : 2.6, fillOpacity: 0.72 }),
+    mouseout: () => alertsLayer?.resetStyle(layer),
+  });
+}
+
+function renderSelectedEmpty(message = "Selectează un județ colorat pentru detalii.") {
+  featureDetailsElement.classList.add("empty-state");
+  featureDetailsElement.innerHTML = escapeHtml(message);
+}
+
+function renderCountyPanel(features) {
+  if (!features.length) {
+    renderSelectedEmpty("Nu există avertizări pentru data selectată.");
+    return;
+  }
+
+  const countyName = features[0].properties?.judet_nume || features[0].properties?.judet_cod || "Zonă afectată";
+  const generalFeatures = features.filter((feature) => !isNowcastingFeature(feature));
+  const nowcastingFeatures = features.filter(isNowcastingFeature);
+  const generalRecords = uniqueFeaturesByAlert(generalFeatures);
+  const nowcastingRecords = uniqueFeaturesByAlert(nowcastingFeatures);
 
   featureDetailsElement.classList.remove("empty-state");
   featureDetailsElement.innerHTML = `
     <div class="selected-zone">
-      <span>${escapeHtml(props.judet_nume || props.judet_cod || "Zonă afectată")}</span>
-      ${codeChip(code)}
+      <span>${escapeHtml(countyName)}</span>
+      ${codeChip(maxCodeFromFeatures(features))}
     </div>
-    <dl class="detail-list">
-      ${detailRow("Județ", props.judet_nume || props.judet_cod || "")}
-      ${detailRowHtml("Cod", codeChip(code))}
-      ${detailRow("Fenomen", phenomenon)}
-      ${detailRow("Valabilitate", formatValidity(props))}
-      ${detailRow("Durată", formatDuration(props))}
-      ${detailRow("Sursa", source)}
-    </dl>
-    <p class="alert-summary-text">${escapeHtml(shortFeatureText(props))}</p>
+    <div class="county-summary-line">
+      <strong>${escapeHtml(pluralAnmAlerts(countDistinctAlerts(features)))}</strong>
+      ${features.length > 1 ? `<span class="overlap-badge">alerte suprapuse</span>` : ""}
+    </div>
+    <div class="county-alert-list">
+      ${generalRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
+    </div>
+    ${nowcastingRecords.length ? `
+      <div class="nowcasting-county-block">
+        <h3>Nowcasting activ</h3>
+        ${nowcastingRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
+      </div>
+    ` : ""}
   `;
 }
 
-function renderAlertsSummary(metadata, features) {
-  let groups = normalizedActiveRecords(metadata, features);
-  groups = groups.filter((g) => (g.source || "general") !== "nowcasting" || showNowcasting);
+function countyAlertHtml(feature, index) {
+  const props = feature.properties || {};
+  const code = safeNumber(props.cod_culoare, 0);
+  return `
+    <article class="county-alert-item">
+      <h3>${index}. Cod ${escapeHtml((COD_NAME[code] || "-").toLowerCase())} — ${escapeHtml(compactPhenomenon(featureText(feature)))}</h3>
+      <dl class="detail-list compact-detail-list">
+        ${detailRow("Valabilitate", formatValidity(props))}
+        ${detailRow("Fenomen", featureText(feature))}
+        ${detailRow("Sursa", sourceLabel(props.source || props.tip))}
+      </dl>
+    </article>
+  `;
+}
 
-  if (!groups.length) {
+function renderAlertsSummary(records) {
+  const generalRecords = records.filter((record) => !isNowcastingRecord(record));
+  if (!generalRecords.length) {
     alertsSummaryElement.classList.add("empty-state");
     alertsSummaryElement.innerHTML = NO_ALERTS_MESSAGE;
     return;
   }
 
   alertsSummaryElement.classList.remove("empty-state");
-  alertsSummaryElement.innerHTML = groups.map((record) => alertCardHtml(record)).join("");
+  alertsSummaryElement.innerHTML = generalRecords.map((record) => alertCardHtml(record)).join("");
+  attachAlertCardEvents();
 }
 
-function normalizedActiveRecords(metadata, features) {
-  const activeAlerts = Array.isArray(metadata?.active_alerts) ? metadata.active_alerts : [];
-  const groups = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
-  return groups.map((record) => normalizeAlertRecord(record));
-}
-
-function normalizeAlertRecord(record) {
-  const zones = Array.isArray(record.judete_afectate) ? record.judete_afectate : [];
-  const zoneColors = record.judete_culori || {};
-  const colorCounts = record.color_counts || countsFromZoneColors(zoneColors);
-  const maxCode = safeNumber(record.cod_culoare_max, maxCodeFromColorCounts(colorCounts));
-  return {
-    ...record,
-    alert_id: record.alert_id || "",
-    source: record.source || "general",
-    cod_culoare_max: maxCode,
-    fenomene_pe_cod: record.fenomene_pe_cod || {},
-    judete_afectate: zones,
-    judete_count: safeNumber(record.judete_count, zones.length),
-    judete_culori: zoneColors,
-    color_counts: colorCounts,
-    text_alerta_html: record.text_alerta_html || "",
-  };
-}
-
-function recordsFromFeatureGroups(features) {
-  const groups = new Map();
-  for (const feature of features) {
-    const props = feature.properties || {};
-    const key = props.alert_id || `alert-${groups.size + 1}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        alert_id: key,
-        source: props.source || props.tip,
-        interval_text: props.interval_text || props.intervalul,
-        interval_start: props.interval_start,
-        interval_end: props.interval_end || props.data_expirare,
-        durata_ore: props.durata_ore,
-        cod_culoare_max: 0,
-        fenomene_pe_cod: props.fenomene_pe_cod || {},
-        judete_afectate: [],
-        judete_count: 0,
-        judete_culori: {},
-        text_alerta_html: props.mesaj_html || props.mesaj || "",
-        color_counts: {},
-      });
-    }
-    const record = groups.get(key);
-    const code = safeNumber(props.cod_culoare, props.culoare || 0);
-    const zone = props.judet_cod || props.cod_judet;
-    record.cod_culoare_max = Math.max(record.cod_culoare_max, code);
-    if (zone) {
-      record.judete_culori[zone] = code;
-      if (code > 0) {
-        record.judete_afectate.push(zone);
-        record.color_counts[String(code)] = (record.color_counts[String(code)] || 0) + 1;
-      }
-    }
+function renderNowcastingSection(features) {
+  if (!nowcastingSection || !nowcastingSummaryElement) return;
+  const records = recordsMatchingFeatures(features).filter(isNowcastingRecord);
+  const show = sourceFilter?.value === "all" && records.length > 0;
+  nowcastingSection.hidden = !show;
+  if (!show) {
+    nowcastingSummaryElement.innerHTML = "";
+    return;
   }
-
-  return [...groups.values()].map((record) => ({
-    ...record,
-    judete_afectate: sortedUnique(record.judete_afectate),
-    judete_count: sortedUnique(record.judete_afectate).length,
-  }));
+  nowcastingSummaryElement.innerHTML = records.map((record) => alertCardHtml(record)).join("");
+  attachAlertCardEvents();
 }
 
 function alertCardHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
   const message = DOMPurify.sanitize(record.text_alerta_html || "");
-  const zones = Array.isArray(record.judete_afectate) ? record.judete_afectate : [];
-  const zoneCount = safeNumber(record.judete_count, zones.length);
-
+  const checked = visibleAlertIds.has(record.alert_id) ? "checked" : "";
+  const phenomenon = recordPrimaryPhenomenon(record);
   return `
     <article class="alert-card lvl-${max}" data-alert-id="${escapeHtml(record.alert_id)}">
       <div class="alert-card-head">
         <div>
           <p class="section-kicker">${escapeHtml(sourceLabel(record.source))}</p>
-          <h3>Avertizare meteorologică</h3>
+          <h3>Cod maxim: ${escapeHtml(COD_NAME[max] || "-")} — ${escapeHtml(phenomenon)}</h3>
         </div>
         ${codeChip(max)}
       </div>
+      <div class="incident-controls">
+        <label class="alert-visible-label">
+          <input type="checkbox" class="alert-visible" data-alert-id="${escapeHtml(record.alert_id)}" ${checked}>
+          <span>Afișează pe hartă</span>
+        </label>
+        <button type="button" class="mini-button alert-isolate" data-alert-id="${escapeHtml(record.alert_id)}">Izolează</button>
+        <button type="button" class="mini-button alert-hide" data-alert-id="${escapeHtml(record.alert_id)}">Ascunde</button>
+      </div>
       <div class="alert-card-grid">
-        <div>
-          <span class="field-label">Cod maxim</span>
-          ${codeChip(max)}
-        </div>
-        <div>
-          <span class="field-label">Coduri prezente</span>
-          ${presentCodesHtml(record)}
-        </div>
-        <div>
-          <span class="field-label">Interval</span>
-          ${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}
-        </div>
-        <div>
-          <span class="field-label">Zone afectate</span>
-          ${escapeHtml(pluralZones(zoneCount))}
-        </div>
-        <div class="span-2">
-          <span class="field-label">Fenomene</span>
-          ${phenomenaListHtml(record.fenomene_pe_cod)}
-        </div>
+        <div><span class="field-label">Fenomen</span><strong>${escapeHtml(phenomenon)}</strong></div>
+        <div><span class="field-label">Interval</span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</div>
+        <div><span class="field-label">Zone afectate</span>${escapeHtml(pluralZones(safeNumber(record.judete_count, 0)))}</div>
+        <div><span class="field-label">Coduri prezente</span>${presentCodesHtml(record)}</div>
+        <div class="span-2"><span class="field-label">Fenomene pe cod</span>${phenomenaListHtml(record.fenomene_pe_cod)}</div>
       </div>
       <details>
         <summary>Vezi textul complet publicat de ANM</summary>
@@ -417,37 +554,173 @@ function alertCardHtml(record) {
   `;
 }
 
-function onEachAlertFeature(feature, layer) {
-  const props = feature.properties || {};
-  const code = safeNumber(props.cod_culoare, props.culoare || 0);
-  const county = props.judet_nume || props.judet_cod || "Zonă afectată";
-  const phenomenon = compactPhenomenon(props.fenomen_principal || PHENOMENON_FALLBACK);
-  const validUntil = formatAlertDateTime(props.interval_end || props.data_expirare);
-
-  layer.bindPopup(`
-    <div class="compact-popup">
-      <strong>${escapeHtml(county)}</strong>
-      <span>Cod ${escapeHtml(String(COD_NAME[code] || "verde").toLowerCase())}</span>
-      <span>${escapeHtml(phenomenon)}</span>
-      <span>Valabil până la: ${escapeHtml(validUntil || "-")}</span>
-    </div>
-  `);
-
-  layer.on({
-    click: () => renderSelectedFeature(feature),
-    mouseover: () => layer.setStyle({ weight: 3, fillOpacity: 0.72 }),
-    mouseout: () => {
-      const owner = props.source === "nowcasting" ? nowcastingLayer : alertsLayer;
-      if (owner) owner.resetStyle(layer);
-    },
+function attachAlertCardEvents() {
+  document.querySelectorAll(".alert-visible").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = input.dataset.alertId;
+      if (!id) return;
+      if (input.checked) visibleAlertIds.add(id);
+      else visibleAlertIds.delete(id);
+      updateDashboard();
+    });
   });
+  document.querySelectorAll(".alert-isolate").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.alertId;
+      if (!id) return;
+      visibleAlertIds = new Set([id]);
+      if (mapModeSelect) mapModeSelect.value = "alert";
+      updateDashboard();
+    });
+  });
+  document.querySelectorAll(".alert-hide").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.alertId;
+      if (!id) return;
+      visibleAlertIds.delete(id);
+      updateDashboard();
+    });
+  });
+}
+
+function recordsMatchingFeatures(features) {
+  const ids = new Set(features.map((feature) => feature.properties?.alert_id).filter(Boolean));
+  return currentRecords.filter((record) => ids.has(record.alert_id));
+}
+
+function normalizedActiveRecords(metadata, features) {
+  const activeAlerts = Array.isArray(metadata?.active_alerts) ? metadata.active_alerts : [];
+  const grouped = activeAlerts.length ? activeAlerts : recordsFromFeatureGroups(features);
+  const featureGroups = groupFeaturesByAlert(features);
+  return grouped.map((record) => normalizeAlertRecord(record, featureGroups.get(record.alert_id) || []));
+}
+
+function normalizeAlertRecord(record, features = []) {
+  const zones = sortedUnique(features.map((feature) => feature.properties?.judet_cod).filter(Boolean));
+  const zoneColors = {};
+  for (const feature of features) {
+    const code = feature.properties?.judet_cod;
+    if (code) zoneColors[code] = safeNumber(feature.properties?.cod_culoare, 0);
+  }
+  const colorCounts = countsFromFeatures(features) || record.color_counts || {};
+  const maxCode = Math.max(safeNumber(record.cod_culoare_max, 0), maxCodeFromFeatures(features));
+  return {
+    ...record,
+    alert_id: record.alert_id || "",
+    source: record.source || features[0]?.properties?.source || "general",
+    cod_culoare_max: maxCode,
+    fenomene_pe_cod: record.fenomene_pe_cod || phenomenaByCodeFromFeatures(features),
+    judete_afectate: zones.length ? zones : (Array.isArray(record.judete_afectate) ? record.judete_afectate : []),
+    judete_count: zones.length || safeNumber(record.judete_count, 0),
+    judete_culori: Object.keys(zoneColors).length ? zoneColors : (record.judete_culori || {}),
+    color_counts: Object.keys(colorCounts).length ? colorCounts : (record.color_counts || {}),
+    text_alerta_html: record.text_alerta_html || "",
+    features,
+  };
+}
+
+function recordsFromFeatureGroups(features) {
+  const groups = groupFeaturesByAlert(features);
+  return [...groups.entries()].map(([alertId, groupedFeatures]) => {
+    const first = groupedFeatures[0]?.properties || {};
+    return {
+      alert_id: alertId,
+      source: first.source || first.tip,
+      interval_text: first.interval_text || first.intervalul,
+      interval_start: first.interval_start,
+      interval_end: first.interval_end || first.data_expirare,
+      durata_ore: first.durata_ore,
+      cod_culoare_max: maxCodeFromFeatures(groupedFeatures),
+      fenomene_pe_cod: phenomenaByCodeFromFeatures(groupedFeatures),
+      text_alerta_html: first.mesaj_html || first.mesaj || "",
+    };
+  });
+}
+
+function groupFeaturesByAlert(features) {
+  const groups = new Map();
+  for (const feature of features) {
+    const key = feature.properties?.alert_id || `alert-${groups.size + 1}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(feature);
+  }
+  return groups;
+}
+
+function buildIndexes(records, features) {
+  const indexes = emptyIndexes();
+  for (const record of records) indexes.alertsById.set(record.alert_id, record);
+  for (const feature of features) {
+    const key = countyKey(feature);
+    const phenomenon = normalizePhenomenon(feature);
+    const severity = String(safeNumber(feature.properties?.cod_culoare, 0));
+    if (!indexes.featuresByCounty.has(key)) indexes.featuresByCounty.set(key, []);
+    if (!indexes.featuresByPhenomenon.has(phenomenon)) indexes.featuresByPhenomenon.set(phenomenon, []);
+    if (!indexes.featuresBySeverity.has(severity)) indexes.featuresBySeverity.set(severity, []);
+    indexes.featuresByCounty.get(key).push(feature);
+    indexes.featuresByPhenomenon.get(phenomenon).push(feature);
+    indexes.featuresBySeverity.get(severity).push(feature);
+  }
+  indexes.visibleAlertIds = visibleAlertIds;
+  return indexes;
+}
+
+function emptyIndexes() {
+  return {
+    alertsById: new Map(),
+    featuresByCounty: new Map(),
+    featuresByPhenomenon: new Map(),
+    featuresBySeverity: new Map(),
+    visibleAlertIds: new Set(),
+  };
+}
+
+function applyDemoOverlap(data) {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("demo") !== "overlap") return data;
+  const clone = JSON.parse(JSON.stringify(data));
+  const features = Array.isArray(clone.features) ? clone.features : [];
+  const cluj = features.find((feature) => feature.properties?.judet_cod === "CJ" && !isNowcastingFeature(feature));
+  if (!cluj || features.some((feature) => feature.properties?.alert_id === "demo-overlap-rain")) return clone;
+
+  const rain = JSON.parse(JSON.stringify(cluj));
+  rain.properties.alert_id = "demo-overlap-rain";
+  rain.properties.cod_culoare = 1;
+  rain.properties.cod_culoare_nume = "Galben";
+  rain.properties.fenomen_principal = "ploi abundente";
+  rain.properties.interval_text = cluj.properties.interval_text || "interval demo";
+  rain.properties.source = "general";
+  features.push(rain);
+  clone.features = features;
+
+  clone.metadata = clone.metadata || {};
+  clone.metadata.demo_overlap = true;
+  clone.metadata.active_alerts = Array.isArray(clone.metadata.active_alerts) ? clone.metadata.active_alerts : [];
+  clone.metadata.active_alerts.push({
+    alert_id: "demo-overlap-rain",
+    source: "general",
+    interval_text: rain.properties.interval_text,
+    interval_start: rain.properties.interval_start,
+    interval_end: rain.properties.interval_end,
+    durata_ore: rain.properties.durata_ore,
+    cod_culoare_max: 1,
+    fenomene_pe_cod: { 1: "ploi abundente" },
+    judete_afectate: ["CJ"],
+    judete_count: 1,
+    judete_culori: { CJ: 1 },
+    color_counts: { 1: 1 },
+    text_alerta_html: "<p>Alertă demo locală pentru testarea suprapunerilor.</p>",
+  });
+  clone.metadata.alert_count = countDistinctAlerts(features);
+  clone.metadata.feature_count = features.length;
+  return clone;
 }
 
 async function loadBaseCounties() {
   try {
     const data = await fetchJson("data/judete.geojson");
     baseCountyLayer = L.geoJSON(data, {
-      style: () => ({ color: "#34D399", weight: 0.8, opacity: 0.35, fillColor: "#34D399", fillOpacity: 0.07 }),
+      style: () => ({ color: "#64748B", weight: 0.8, opacity: 0.42, fillColor: "#64748B", fillOpacity: 0.035 }),
       interactive: false,
     }).addTo(map);
     baseCountyLayer.bringToBack();
@@ -464,12 +737,13 @@ async function loadHistoryStats() {
     historyStats = { counties: [] };
   }
 
-  const counties = Array.isArray(historyStats.counties) ? historyStats.counties : [];
+  const counties = (Array.isArray(historyStats.counties) ? historyStats.counties : [])
+    .filter((county) => COUNTY_CODES.has(String(county.judet_cod || "")))
+    .sort((a, b) => String(a.judet_nume || a.judet_cod).localeCompare(String(b.judet_nume || b.judet_cod), "ro"));
+
   if (!counties.length || !countySelector) {
-    if (countyHistoryElement) {
-      countyHistoryElement.classList.add("empty-state");
-      countyHistoryElement.innerHTML = "Nu există statistici încărcate.";
-    }
+    countyHistoryElement.classList.add("empty-state");
+    countyHistoryElement.innerHTML = "Nu există statistici încărcate.";
     return;
   }
 
@@ -480,21 +754,15 @@ async function loadHistoryStats() {
 }
 
 function renderCountyHistory(countyCode) {
-  const counties = Array.isArray(historyStats.counties) ? historyStats.counties : [];
+  const counties = (Array.isArray(historyStats.counties) ? historyStats.counties : []).filter((county) => COUNTY_CODES.has(String(county.judet_cod || "")));
   const county = counties.find((item) => item.judet_cod === countyCode);
-
   if (!county) {
     countyHistoryElement.classList.add("empty-state");
-    countyHistoryElement.innerHTML = "Nu există statistici pentru zona selectată.";
+    countyHistoryElement.innerHTML = "Nu există statistici pentru județul selectat.";
     return;
   }
-
   const counts = county.color_counts || {};
   const total = safeNumber(county.alert_count, 0);
-  const earlyHistoryNote = total < 10
-    ? `<p class="history-note">Istoricul este încă la început și va deveni mai relevant după mai multe rulări.</p>`
-    : "";
-
   countyHistoryElement.classList.remove("empty-state");
   countyHistoryElement.innerHTML = `
     <div class="history-stat">
@@ -509,7 +777,7 @@ function renderCountyHistory(countyCode) {
       <div><span class="field-label">Ultima alertă</span><strong>${escapeHtml(formatAlertDateTime(county.last_alert_end) || "-")}</strong></div>
       <div><span class="field-label">Cod maxim istoric</span>${codeChip(county.max_color)}</div>
     </div>
-    ${earlyHistoryNote}
+    ${total < 10 ? `<p class="history-note">Istoricul este încă la început și va deveni mai relevant după mai multe rulări.</p>` : ""}
   `;
 }
 
@@ -524,14 +792,14 @@ async function renderDownloads() {
     }
     downloadsTableBody.innerHTML = months
       .map((month) => `
-          <tr>
-            <td>${escapeHtml(month.month)}</td>
-            <td>${escapeHtml(month.alert_count)}</td>
-            <td>${escapeHtml(month.first_alert || "-")} - ${escapeHtml(month.last_alert || "-")}</td>
-            <td>${codeChip(month.max_color)}</td>
-            <td><a href="${escapeHtml(month.path)}" download>Descarcă CSV</a></td>
-          </tr>
-        `)
+        <tr>
+          <td>${escapeHtml(month.month)}</td>
+          <td>${escapeHtml(month.alert_count)}</td>
+          <td>${escapeHtml(month.first_alert || "-")} - ${escapeHtml(month.last_alert || "-")}</td>
+          <td>${codeChip(month.max_color)}</td>
+          <td><a href="${escapeHtml(month.path)}" download>Descarcă CSV</a></td>
+        </tr>
+      `)
       .join("");
   } catch (error) {
     console.warn("istoric/index.json could not be loaded", error);
@@ -543,33 +811,21 @@ function renderCalendar() {
   const first = new Date(viewYear, viewMonth, 1);
   const days = new Date(viewYear, viewMonth + 1, 0).getDate();
   const offset = (first.getDay() + 6) % 7;
-  const weekdays = ["L", "Ma", "Mi", "J", "V", "S", "D"]
-    .map((day) => `<div class="cal-weekday">${day}</div>`)
-    .join("");
+  const weekdays = ["L", "Ma", "Mi", "J", "V", "S", "D"].map((day) => `<div class="cal-weekday">${day}</div>`).join("");
   let cells = "";
 
-  for (let index = 0; index < offset; index += 1) {
-    cells += `<div class="cal-cell empty"></div>`;
-  }
+  for (let index = 0; index < offset; index += 1) cells += `<div class="cal-cell empty"></div>`;
 
   for (let day = 1; day <= days; day += 1) {
     const iso = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const info = dataIndex.dates?.[iso];
     const code = safeNumber(info?.max_color, 0);
-    let codeClass;
-    if (!info) codeClass = "no-data";
-    else if (code > 0) codeClass = `cod-${code}`;
-    else if (info.has_nowcasting) codeClass = "has-nowcasting";
-    else codeClass = "cod-0";
-    const futureClass = dataIndex.today && iso > dataIndex.today ? "future" : "";
+    const codeClass = info && code > 0 ? `cod-${code}` : info?.has_nowcasting ? "has-nowcasting" : "no-data";
     const selectedClass = iso === selectedDate ? "selected" : "";
     const title = info
-      ? `${pluralAnmAlerts(info.alert_count)} · ${pluralZones(info.feature_count)} · cod maxim ${COD_NAME[code] || "Verde"}${info.has_nowcasting ? ` · ${info.nowcasting_count} nowcasting` : ""}`
+      ? `${pluralAnmAlerts(info.alert_count)} · ${pluralZones(info.feature_count)} · cod maxim ${COD_NAME[code] || "-"}`
       : "fără date";
-    cells += `
-      <button type="button" class="cal-cell ${codeClass} ${futureClass} ${selectedClass}"
-        data-iso="${iso}" title="${escapeHtml(title)}">${day}</button>
-    `;
+    cells += `<button type="button" class="cal-cell ${codeClass} ${selectedClass}" data-iso="${iso}" title="${escapeHtml(title)}">${day}</button>`;
   }
 
   calendarElement.innerHTML = `
@@ -580,7 +836,6 @@ function renderCalendar() {
     </div>
     <div class="cal-grid">${weekdays}${cells}</div>
   `;
-
   document.getElementById("cal-prev").addEventListener("click", () => {
     viewMonth -= 1;
     if (viewMonth < 0) { viewMonth = 11; viewYear -= 1; }
@@ -591,9 +846,143 @@ function renderCalendar() {
     if (viewMonth > 11) { viewMonth = 0; viewYear += 1; }
     renderCalendar();
   });
-  calendarElement.querySelectorAll("[data-iso]").forEach((button) => {
-    button.addEventListener("click", () => showDate(button.dataset.iso));
+  calendarElement.querySelectorAll("[data-iso]").forEach((button) => button.addEventListener("click", () => showDate(button.dataset.iso)));
+}
+
+function addLegend() {
+  const legend = L.control({ position: "bottomright" });
+  legend.onAdd = () => {
+    const container = L.DomUtil.create("div", "leaflet-control legend dashboard-legend");
+    L.DomEvent.disableClickPropagation(container);
+    const rows = [1, 2, 3].map((code) => `
+      <button type="button" class="legend-row legend-filter" data-severity="${code}">
+        <span class="legend-swatch" style="background:${COD_COLOR[code]}"></span>
+        <span>${COD_NAME[code]}</span>
+      </button>
+    `).join("");
+    container.innerHTML = `<div class="legend-title">Filtru cod</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate</span></button>${rows}`;
+    setTimeout(() => {
+      container.querySelectorAll(".legend-filter").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (severityFilter) severityFilter.value = button.dataset.severity || "all";
+          updateDashboard();
+        });
+      });
+    }, 0);
+    return container;
+  };
+  legend.addTo(map);
+}
+
+function refitMapToCurrentLayer() {
+  map.invalidateSize(true);
+  if (alertsLayer && alertsLayer.getLayers().length > 0 && alertsLayer.getBounds().isValid()) {
+    map.fitBounds(alertsLayer.getBounds(), { padding: [30, 30], maxZoom: 8 });
+  } else {
+    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
+  }
+}
+
+function clearAlertsLayer() {
+  if (alertsLayer) {
+    map.removeLayer(alertsLayer);
+    alertsLayer = null;
+  }
+}
+
+function populatePhenomenonFilter() {
+  if (!phenomenonFilter) return;
+  phenomenonFilter.innerHTML = PHENOMENA.map((item) => `<option value="${item.value}">${item.label}</option>`).join("");
+}
+
+function normalizePhenomenon(feature) {
+  const text = stripDiacritics(featureText(feature)).toLowerCase();
+  if (/(canicula|caldura|temperaturi|tropical|disconfort termic|arsita)/.test(text)) return "heat";
+  if (/(ploaie|ploi|averse|precipitatii|torential|cantitati de apa)/.test(text)) return "rain";
+  if (/(vijelie|vijelii|furtuna|descarcari electrice|grindina|instabilitate)/.test(text)) return "storm";
+  if (/(ninsoare|ninsori|zapada)/.test(text)) return "snow";
+  if (/(viscol|spulberat)/.test(text)) return "blizzard";
+  if (/(ceata|vizibilitate redusa)/.test(text)) return "fog";
+  if (/(polei|chiciura|gheata|inghet)/.test(text)) return "ice";
+  return "other";
+}
+
+function featureText(feature) {
+  const props = feature.properties || {};
+  return props.fenomen_principal || props.fenomene_vizate || props.mesaj_plain || props.mesaj || PHENOMENON_FALLBACK;
+}
+
+function activePhenomenaLabels(features) {
+  const labels = sortedUnique(features.map((feature) => phenomenonLabel(normalizePhenomenon(feature))).filter(Boolean));
+  return labels.join(" · ");
+}
+
+function phenomenonLabel(value) {
+  return PHENOMENA.find((item) => item.value === value)?.label.replace(" / caniculă", "") || "Alte fenomene";
+}
+
+function countyKey(feature) {
+  const props = feature.properties || {};
+  return props.judet_cod || props.cod_judet || props.judet_nume || props.alert_id || "zona";
+}
+
+function uniqueFeaturesByAlert(features) {
+  const seen = new Set();
+  return features.filter((feature) => {
+    const id = feature.properties?.alert_id || `${feature.properties?.judet_cod}-${feature.properties?.cod_culoare}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
   });
+}
+
+function countDistinctAlerts(features) {
+  return new Set(features.map((feature) => feature.properties?.alert_id).filter(Boolean)).size || (features.length ? 1 : 0);
+}
+
+function countDistinctCounties(features) {
+  return new Set(features.map(countyKey).filter(Boolean)).size;
+}
+
+function maxCodeFromFeatures(features) {
+  return features.reduce((max, feature) => Math.max(max, safeNumber(feature.properties?.cod_culoare, 0)), 0);
+}
+
+function countsFromFeatures(features) {
+  const counts = {};
+  for (const feature of features) {
+    const code = safeNumber(feature.properties?.cod_culoare, 0);
+    if (code > 0) counts[String(code)] = (counts[String(code)] || 0) + 1;
+  }
+  return counts;
+}
+
+function phenomenaByCodeFromFeatures(features) {
+  const result = {};
+  for (const feature of features) {
+    const code = safeNumber(feature.properties?.cod_culoare, 0);
+    if (code > 0 && !result[String(code)]) result[String(code)] = featureText(feature);
+  }
+  return result;
+}
+
+function recordPrimaryPhenomenon(record) {
+  const entries = Object.entries(record.fenomene_pe_cod || {}).sort((a, b) => safeNumber(b[0], 0) - safeNumber(a[0], 0));
+  const text = entries[0]?.[1] || (record.features?.[0] ? featureText(record.features[0]) : PHENOMENON_FALLBACK);
+  return compactPhenomenon(text);
+}
+
+function isNowcastingFeature(feature) {
+  return String(feature.properties?.source || feature.properties?.tip || "").toLowerCase().includes("nowcasting");
+}
+
+function isNowcastingRecord(record) {
+  return String(record.source || "").toLowerCase().includes("nowcasting");
+}
+
+function renderLastUpdated(value) {
+  if (!lastUpdatedElement) return;
+  lastUpdatedElement.textContent = `Ultima actualizare: ${formatUtcStamp(value) || "necunoscută"}`;
 }
 
 function setCalendarView(dateString) {
@@ -603,66 +992,14 @@ function setCalendarView(dateString) {
   viewMonth = parsed.getMonth();
 }
 
-function refitMapToCurrentLayer() {
-  map.invalidateSize(true);
-  let bounds = null;
-  const layers = [alertsLayer, showNowcasting ? nowcastingLayer : null];
-  for (const layer of layers) {
-    if (layer && layer.getLayers().length > 0 && layer.getBounds().isValid()) {
-      bounds = bounds ? bounds.extend(layer.getBounds()) : L.latLngBounds(layer.getBounds());
-    }
-  }
-  if (bounds && bounds.isValid()) {
-    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 8 });
-  } else {
-    map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-  }
+function isDateAvailable(dateString) {
+  return Boolean(dataIndex.dates?.[dateString]);
 }
 
-function clearAlertsLayer() {
-  if (alertsLayer) { map.removeLayer(alertsLayer); alertsLayer = null; }
-  if (nowcastingLayer) { map.removeLayer(nowcastingLayer); nowcastingLayer = null; }
-}
-
-function setStatus(message) {
-  if (statusElement) statusElement.textContent = message;
-}
-
-function emptyMessageFor(metadata) {
-  if (metadata?.alerts_found_raw && metadata?.features_with_geometry === 0) {
-    return metadata.reason || EMPTY_MESSAGE;
-  }
-  return NO_ALERTS_MESSAGE;
-}
-
-function getAlertStyle(feature) {
-  const code = safeNumber(feature.properties?.cod_culoare, feature.properties?.culoare || 0);
-  const color = COD_COLOR[code] || COD_COLOR[0];
-  return { color, fillColor: color, weight: 1.5, opacity: 1, fillOpacity: code === 3 ? 0.62 : 0.55 };
-}
-
-function getNowcastingStyle(feature) {
-  const code = safeNumber(feature.properties?.cod_culoare, 0);
-  const color = COD_COLOR[code] || COD_COLOR[0];
-  return { color, fillColor: color, weight: 1.5, opacity: 0.9, dashArray: "4 3", fillOpacity: 0.28 };
-}
-
-function addLegend() {
-  const legend = L.control({ position: "bottomright" });
-  legend.onAdd = () => {
-    const container = L.DomUtil.create("div", "leaflet-control legend");
-    const rows = [0, 1, 2, 3]
-      .map((code) => `
-          <div class="legend-row">
-            <span class="legend-swatch" style="background:${COD_COLOR[code]}"></span>
-            <span>${COD_NAME[code]}</span>
-          </div>
-        `)
-      .join("");
-    container.innerHTML = `<div class="legend-title">Coduri</div>${rows}`;
-    return container;
-  };
-  legend.addTo(map);
+function indexDates() {
+  if (dataIndex.dates && !Array.isArray(dataIndex.dates)) return Object.keys(dataIndex.dates).sort();
+  if (!Array.isArray(dataIndex.files)) return [];
+  return dataIndex.files.map((file) => (typeof file === "string" ? file.replace(/\.geojson$/, "") : file?.date)).filter(Boolean).sort();
 }
 
 function preferredInitialDate() {
@@ -672,99 +1009,12 @@ function preferredInitialDate() {
   return dates[dates.length - 1] || today;
 }
 
-function isDateAvailable(dateString) {
-  return Boolean(dataIndex.dates?.[dateString]);
-}
-
-function indexDates() {
-  if (dataIndex.dates && !Array.isArray(dataIndex.dates)) {
-    return Object.keys(dataIndex.dates).sort();
-  }
-  if (!Array.isArray(dataIndex.files)) return [];
-  return dataIndex.files
-    .map((file) => (typeof file === "string" ? file.replace(/\.geojson$/, "") : file?.date))
-    .filter(Boolean)
-    .sort();
-}
-
-function countDistinctAlerts(features) {
-  const alertIds = new Set(features.map((feature) => feature.properties?.alert_id).filter(Boolean));
-  return alertIds.size || (features.length ? 1 : 0);
-}
-
 function summaryCard(label, value, extraClass = "") {
-  const isHtml = String(value).includes("<");
-  return `
-    <article class="summary-card ${extraClass}">
-      <span class="summary-label">${escapeHtml(label)}</span>
-      <strong>${isHtml ? value : escapeHtml(value || "-")}</strong>
-    </article>
-  `;
-}
-
-function summaryPhenomena(records, features) {
-  const byCode = new Map();
-  for (const record of records) {
-    for (const [code, text] of Object.entries(record.fenomene_pe_cod || {})) {
-      if (text) byCode.set(safeNumber(code, 0), compactPhenomenon(text));
-    }
-  }
-  if (byCode.size) {
-    return [...byCode.entries()]
-      .filter(([code]) => code > 0)
-      .sort((a, b) => b[0] - a[0])
-      .map(([, text]) => text)
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(", ");
-  }
-  const phenomena = sortedUnique(features.map((feature) => compactPhenomenon(feature.properties?.fenomen_principal)).filter(Boolean));
-  return phenomena.slice(0, 3).join(", ") || PHENOMENON_FALLBACK;
-}
-
-function summaryInterval(records, features) {
-  const intervals = sortedUnique(records.map((record) => record.interval_text).filter(Boolean));
-  if (intervals.length === 1) return intervals[0];
-
-  const starts = records.map((record) => record.interval_start).filter(Boolean).sort();
-  const ends = records.map((record) => record.interval_end).filter(Boolean).sort();
-  if (starts.length && ends.length) return formatRange(starts[0], ends[ends.length - 1]);
-
-  const featureIntervals = sortedUnique(features.map((feature) => feature.properties?.interval_text).filter(Boolean));
-  if (featureIntervals.length === 1) return featureIntervals[0];
-  return intervals.length ? "intervale multiple, conform avertizărilor ANM" : "-";
-}
-
-function maxCodeFromRecords(records, features, fallback = 0) {
-  const recordMax = records.reduce((max, record) => Math.max(max, safeNumber(record.cod_culoare_max, 0)), 0);
-  const featureMax = features.reduce((max, feature) => Math.max(max, safeNumber(feature.properties?.cod_culoare, 0)), 0);
-  return Math.max(safeNumber(fallback, 0), recordMax, featureMax);
-}
-
-function countsFromZoneColors(zoneColors) {
-  const counts = {};
-  for (const color of Object.values(zoneColors || {})) {
-    const code = String(color);
-    if (safeNumber(code, 0) > 0) counts[code] = (counts[code] || 0) + 1;
-  }
-  return counts;
-}
-
-function maxCodeFromColorCounts(colorCounts) {
-  return Object.keys(colorCounts || {}).reduce((max, code) => Math.max(max, safeNumber(code, 0)), 0);
+  return `<article class="summary-card ${extraClass}"><span class="summary-label">${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></article>`;
 }
 
 function detailRow(label, value) {
-  return detailRowHtml(label, escapeHtml(value || "-"));
-}
-
-function detailRowHtml(label, html) {
-  return `
-    <div class="detail-row">
-      <dt class="detail-label">${escapeHtml(label)}</dt>
-      <dd>${html || "-"}</dd>
-    </div>
-  `;
+  return `<div class="detail-row"><dt class="detail-label">${escapeHtml(label)}</dt><dd>${escapeHtml(value || "-")}</dd></div>`;
 }
 
 function formatValidity(props) {
@@ -773,25 +1023,6 @@ function formatValidity(props) {
 
 function formatRange(start, end) {
   return [formatAlertDateTime(start), formatAlertDateTime(end)].filter(Boolean).join(" – ");
-}
-
-function formatDuration(props) {
-  const hours = Number(props.durata_ore);
-  if (!Number.isFinite(hours) || hours <= 0) return "-";
-  const roundedHours = Number.isInteger(hours) ? hours : Math.round(hours * 10) / 10;
-  const hourText = `${roundedHours} ${roundedHours === 1 ? "oră" : "ore"}`;
-  const calendarDays = calendarDaySpan(props.interval_start || props.data_aparitiei, props.interval_end || props.data_expirare);
-  return calendarDays > 1 ? `${hourText} / ${calendarDays} zile calendaristice` : hourText;
-}
-
-function calendarDaySpan(start, end) {
-  if (!start || !end) return 0;
-  const startDate = new Date(String(start).length === 16 ? `${start}:00` : start);
-  const endDate = new Date(String(end).length === 16 ? `${end}:00` : end);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
-  const startMidnight = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-  const endMidnight = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-  return Math.max(1, Math.round((endMidnight - startMidnight) / 86400000) + 1);
 }
 
 function formatAlertDateTime(value) {
@@ -813,18 +1044,7 @@ function formatUtcStamp(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const yyyy = date.getUTCFullYear();
-  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(date.getUTCDate()).padStart(2, "0");
-  const hh = String(date.getUTCHours()).padStart(2, "0");
-  const min = String(date.getUTCMinutes()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${min} UTC`;
-}
-
-function shortFeatureText(props) {
-  const code = String(props.cod_culoare_nume || COD_NAME[safeNumber(props.cod_culoare, 0)] || "Verde").toLowerCase();
-  const phenomenon = compactPhenomenon(props.fenomen_principal || PHENOMENON_FALLBACK).toLowerCase();
-  return `Această zonă este afectată de cod ${code} pentru ${phenomenon}.`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")} ${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")} UTC`;
 }
 
 function compactPhenomenon(text) {
@@ -834,49 +1054,26 @@ function compactPhenomenon(text) {
 }
 
 function sourceLabel(source) {
-  if (!source) return "ANM";
-  return String(source).toLowerCase().includes("nowcasting") ? "ANM Nowcasting" : "ANM General";
+  if (!source) return "General ANM";
+  return String(source).toLowerCase().includes("nowcasting") ? "Nowcasting" : "General ANM";
 }
 
 function presentCodesHtml(record) {
-  const counts = record.color_counts || countsFromZoneColors(record.judete_culori);
-  const entries = Object.keys(counts)
-    .map((code) => safeNumber(code, 0))
-    .filter((code) => code > 0)
-    .sort((a, b) => a - b);
-  if (!entries.length) return codeChip(0);
+  const entries = Object.keys(record.color_counts || {}).map((code) => safeNumber(code, 0)).filter((code) => code > 0).sort((a, b) => a - b);
+  if (!entries.length) return "-";
   return `<span class="codes-present">${entries.map((code) => codeChip(code)).join("<span class=\"slash\">/</span>")}</span>`;
 }
 
-function colorCountsHtml(colorCounts, fallbackColors = {}) {
-  const counts = { ...(colorCounts || {}) };
-  if (!Object.keys(counts).length && fallbackColors) {
-    Object.assign(counts, countsFromZoneColors(fallbackColors));
-  }
-  const entries = Object.entries(counts)
-    .map(([code, count]) => [safeNumber(code, 0), count])
-    .filter(([code]) => code > 0)
-    .sort((a, b) => a[0] - b[0]);
-  if (!entries.length) return codeChip(0);
-  return entries.map(([code, count]) => `${codeChip(code)} <span class="count-badge">${escapeHtml(count)}</span>`).join(" ");
-}
-
 function phenomenaListHtml(phenomenaByCode) {
-  const entries = Object.entries(phenomenaByCode || {})
-    .map(([code, text]) => [safeNumber(code, 0), text])
-    .filter(([code, text]) => code > 0 && text)
-    .sort((a, b) => a[0] - b[0]);
+  const entries = Object.entries(phenomenaByCode || {}).map(([code, text]) => [safeNumber(code, 0), text]).filter(([code, text]) => code > 0 && text).sort((a, b) => a[0] - b[0]);
   if (!entries.length) return `<p class="phenomenon-fallback">${escapeHtml(PHENOMENON_FALLBACK)}</p>`;
-  return `
-    <ul class="phenomena-list">
-      ${entries.map(([code, text]) => `<li><strong>Cod ${escapeHtml(String(COD_NAME[code] || "").toLowerCase())}:</strong> ${escapeHtml(text)}</li>`).join("")}
-    </ul>
-  `;
+  return `<ul class="phenomena-list">${entries.map(([code, text]) => `<li><strong>Cod ${escapeHtml(String(COD_NAME[code] || "").toLowerCase())}:</strong> ${escapeHtml(text)}</li>`).join("")}</ul>`;
 }
 
 function codeChip(code) {
   const normalized = safeNumber(code, 0);
-  return `<span class="cod cod-${normalized}">${escapeHtml(COD_NAME[normalized] || "Verde")}</span>`;
+  if (!normalized) return `<span class="cod cod-neutral">Fără cod</span>`;
+  return `<span class="cod cod-${normalized}">${escapeHtml(COD_NAME[normalized] || "-")}</span>`;
 }
 
 function pluralAnmAlerts(count) {
@@ -886,11 +1083,22 @@ function pluralAnmAlerts(count) {
   return `${n} avertizări ANM`;
 }
 
+function pluralActiveAlerts(count) {
+  const n = safeNumber(count, 0);
+  if (n === 1) return "1 avertizare activă";
+  if (n >= 20) return `${n} de avertizări active`;
+  return `${n} avertizări active`;
+}
+
 function pluralZones(count) {
   const n = safeNumber(count, 0);
   if (n === 1) return "1 zonă afectată";
   if (n >= 20) return `${n} de zone afectate`;
   return `${n} zone afectate`;
+}
+
+function stripDiacritics(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function sortedUnique(values) {
@@ -912,6 +1120,10 @@ async function fetchJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+
+function setStatus(message) {
+  if (statusElement) statusElement.textContent = message;
 }
 
 function safeNumber(value, fallback = 0) {
