@@ -526,9 +526,88 @@ def index_entry_from_geojson(day, fc):
         "phenomena": phenomena,
     }
 
+def point_in_polygon(x, y, poly):
+    n = len(poly)
+    inside = False
+    p1x, p1y = poly[0]
+    for i in range(n + 1):
+        p2x, p2y = poly[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xints = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xints:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
+
+def get_county_for_wgs(lon, lat):
+    try:
+        with open(os.path.join(DATA, "judete.geojson"), encoding="utf-8") as f:
+            judete = json.load(f)
+    except Exception:
+        return None
+    for feat in judete.get("features", []):
+        geom = feat.get("geometry", {})
+        if geom.get("type") == "MultiPolygon":
+            for poly in geom.get("coordinates", []):
+                for ring in poly:
+                    if point_in_polygon(lon, lat, ring):
+                        return feat.get("properties", {}).get("judet_cod")
+        elif geom.get("type") == "Polygon":
+            for ring in geom.get("coordinates", []):
+                if point_in_polygon(lon, lat, ring):
+                    return feat.get("properties", {}).get("judet_cod")
+    return None
+
+def fetch_and_save_current_weather():
+    url = "https://www.meteoromania.ro/wp-json/meteoapi/v2/starea-vremii"
+    out_path = os.path.join(DATA, "current_weather.json")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "MeteoAlertRO/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read())
+        stations = []
+        by_county = defaultdict(list)
+        for feat in data.get("features", []):
+            props = feat.get("properties", {})
+            geom = feat.get("geometry", {})
+            coords = geom.get("coordinates", [])
+            lon, lat = 0, 0
+            if len(coords) == 2:
+                # API returns EPSG:3857 coordinates
+                lon, lat = merc_to_wgs(float(coords[0]), float(coords[1]))
+            county_code = get_county_for_wgs(lon, lat)
+            county_name = JUDETE.get(county_code, county_code) if county_code else "Necunoscut"
+            st = {
+                "station_name": props.get("nume", "Necunoscut"),
+                "county_name": county_name,
+                "temperature_c": float(props.get("tempe")) if props.get("tempe") and props.get("tempe") != "indisponibil" else None,
+                "weather": props.get("nebulozitate") or props.get("fenomen_e") or "",
+                "humidity": props.get("umezeala"),
+                "wind": props.get("vant"),
+                "raw": props
+            }
+            stations.append(st)
+            if county_name != "Necunoscut":
+                by_county[county_name].append(st)
+        
+        result = {
+            "fetched_at_utc": now_utc(),
+            "source": "meteoromania.ro",
+            "stations": stations,
+            "by_county": dict(by_county)
+        }
+        write_json(out_path, result)
+        print(f"[current_weather] Salvat {len(stations)} statii in {out_path}")
+    except Exception as e:
+        print(f"[current_weather] Avertisment: Nu s-a putut descarca starea vremii: {e}", file=sys.stderr)
+
 def archive_index_entries():
     by_day = defaultdict(lambda: {
         "alert_ids": set(),
+        "nowcasting_ids": set(),
         "codes": set(),
         "phenomena": set(),
         "max_color": 0,
@@ -550,9 +629,13 @@ def archive_index_entries():
                     for text in fen_by_code.values()
                     if str(text).strip()
                 }
+                is_nc = (str(r.get("source")).lower() == "nowcasting")
+                alert_id = r.get("alert_id") or r.get("content_hash") or ""
                 for day in zile_acoperite(start, end):
                     entry = by_day[day]
-                    entry["alert_ids"].add(r.get("alert_id") or r.get("content_hash") or day)
+                    entry["alert_ids"].add(alert_id or day)
+                    if is_nc and alert_id:
+                        entry["nowcasting_ids"].add(alert_id)
                     if code > 0:
                         entry["codes"].add(code)
                     entry["phenomena"].update(phenomena)
@@ -585,8 +668,8 @@ def rebuild_data_index():
             "feature_count": 0,
             "max_color": None,
             "max_code": None,
-            "nowcasting_count": 0,
-            "has_nowcasting": False,
+            "nowcasting_count": len(archived["nowcasting_ids"]),
+            "has_nowcasting": len(archived["nowcasting_ids"]) > 0,
             "codes": sorted(archived["codes"]),
             "phenomena": sorted(archived["phenomena"]),
         }
@@ -685,6 +768,72 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(DATA, exist_ok=True); os.makedirs(ISTORIC, exist_ok=True)
+
+    rebuild_history_stats()
+    rebuild_istoric_manifest()
+    return index, latest_day
+
+def glob_csv():
+    import glob
+    return glob.glob(os.path.join(ISTORIC, "*", "*.csv"))
+
+def rebuild_history_stats():
+    acc = {}
+    for path in sorted(glob_csv()):
+        with open(path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                end = r["interval_end"]
+                for jcod, cul in json.loads(r["judete_culori_json"]).items():
+                    cul = int(cul)
+                    c = acc.setdefault(jcod, {"judet_cod": jcod, "judet_nume": JUDETE.get(jcod, jcod),
+                                              "alert_count": 0, "max_color": 0,
+                                              "last_alert_end": None, "color_counts": {}})
+                    c["alert_count"] += 1
+                    c["max_color"] = max(c["max_color"], cul)
+                    if cul > 0:
+                        c["color_counts"][str(cul)] = c["color_counts"].get(str(cul), 0) + 1
+                    if c["last_alert_end"] is None or end > c["last_alert_end"]:
+                        c["last_alert_end"] = end
+    counties = sorted(acc.values(), key=lambda x: x["judet_cod"])
+    write_json(os.path.join(DATA, "history_stats.json"),
+               {"generated_at_utc": now_utc(), "counties": counties})
+
+def rebuild_istoric_manifest():
+    months = []
+    for path in sorted(glob_csv()):
+        with open(path, encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if not rows: continue
+        dates = [r["interval_start"][:10] for r in rows]
+        months.append({
+            "month": os.path.basename(path)[:7],
+            "path": os.path.relpath(path, PUBLIC).replace(os.sep, "/"),
+            "alert_count": len(rows), "first_alert": min(dates), "last_alert": max(dates),
+            "max_color": max(int(r["cod_culoare_max"] or 0) for r in rows),
+            "size_bytes": os.path.getsize(path),
+        })
+    months.sort(key=lambda m: m["month"], reverse=True)
+    write_json(os.path.join(ISTORIC, "index.json"), {"generated_at_utc": now_utc(), "months": months})
+    lines = ["# Arhivă avertizări ANM (MeteoAlertRO)", "",
+             "CSV lunar, un rând per avertizare logică. Encoding UTF-8 (BOM).", "",
+             "| Lună | Alerte | Interval | Cod max | Fișier |", "|---|---|---|---|---|"]
+    for m in months:
+        fn = os.path.basename(m["path"])
+        rel = m["path"].split("istoric/", 1)[-1]
+        lines.append(f"| {m['month']} | {m['alert_count']} | {m['first_alert']}–{m['last_alert']} "
+                     f"| {COD_TO_NUME[m['max_color']]} | [{fn}]({rel}) |")
+    os.makedirs(ISTORIC, exist_ok=True)
+    with open(os.path.join(ISTORIC, "README.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+# ------------------------------------------------------------------ main
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--local", help="cale catre un XML local (test)")
+    ap.add_argument("--source", default="general", choices=["general", "nowcasting"])
+    args = ap.parse_args()
+
+    os.makedirs(DATA, exist_ok=True); os.makedirs(ISTORIC, exist_ok=True)
     alerts = []
     if args.local:
         with open(args.local, "rb") as f:
@@ -698,6 +847,8 @@ def main():
                 print(f"[{source}] {url}: {len(got)} avertizari")
             except Exception as ex:
                 print(f"[{source}] EROARE: {ex}", file=sys.stderr)
+
+    fetch_and_save_current_weather()
 
     if alerts:
         upsert_archive(alerts)

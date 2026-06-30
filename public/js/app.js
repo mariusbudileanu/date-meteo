@@ -52,12 +52,57 @@ const countyHistoryElement = document.getElementById("county-history");
 const downloadsTableBody = document.getElementById("downloads-table-body");
 
 let dataIndex = { dates: {}, files: [] };
+const COD_COLOR = { 1: "#FDE047", 2: "#FB923C", 3: "#F43F5E" };
+const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
+const COUNTY_CODES = new Set([
+  "AB", "AR", "AG", "B", "BC", "BH", "BN", "BR", "BT", "BV", "BZ", "CJ", "CL", "CS", "CT", "CV",
+  "DB", "DJ", "GJ", "GL", "GR", "HD", "HR", "IF", "IL", "IS", "MH", "MM", "MS", "NT", "OT",
+  "PH", "SB", "SJ", "SM", "SV", "TL", "TM", "TR", "VL", "VN", "VS",
+]);
+
+const PHENOMENA = [
+  { value: "all", label: "Toate fenomenele" },
+  { value: "heat", label: "Temperaturi extreme / caniculă" },
+  { value: "rain", label: "Ploi" },
+  { value: "storm", label: "Vijelii" },
+  { value: "snow", label: "Ninsori" },
+  { value: "blizzard", label: "Viscol" },
+  { value: "fog", label: "Ceață" },
+  { value: "ice", label: "Polei" },
+  { value: "other", label: "Alte fenomene" },
+];
+
+const statusElement = document.getElementById("status");
+const lastUpdatedElement = document.getElementById("last-updated");
+const daySummaryElement = document.getElementById("day-summary");
+const latestButton = document.getElementById("latest-alerts-button");
+const calendarElement = document.getElementById("calendar");
+const sourceFilter = document.getElementById("source-filter");
+const phenomenonFilter = document.getElementById("phenomenon-filter");
+const severityFilter = document.getElementById("severity-filter");
+const mapModeSelect = document.getElementById("map-mode");
+const nowcastingToggle = document.getElementById("nowcasting-toggle");
+const overlapFilter = document.getElementById("overlap-filter");
+const resetFiltersButton = document.getElementById("reset-filters-button");
+const visibleAlertChipsElement = document.getElementById("visible-alert-chips");
+const featureDetailsElement = document.getElementById("feature-details");
+const alertsSummaryElement = document.getElementById("alerts-summary");
+const compareSection = document.getElementById("compare-section");
+const compareAlertsElement = document.getElementById("compare-alerts");
+const nowcastingSection = document.getElementById("nowcasting-section");
+const nowcastingSummaryElement = document.getElementById("nowcasting-summary");
+const countySelector = document.getElementById("county-selector");
+const countyHistoryElement = document.getElementById("county-history");
+const downloadsTableBody = document.getElementById("downloads-table-body");
+
+let dataIndex = { dates: {}, files: [] };
 let historyStats = { counties: [] };
 let alertsLayer = null;
 let baseCountyLayer = null;
 let selectedDate = "";
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
+let currentWeather = null;
 let currentData = null;
 let currentDateLabel = "";
 let currentFeatures = [];
@@ -96,6 +141,12 @@ start();
 async function start() {
   dataIndex = await loadIndex();
   renderLastUpdated(dataIndex.generated_at_utc);
+
+  try {
+    currentWeather = await fetchJson("data/current_weather.json");
+  } catch (error) {
+    currentWeather = null;
+  }
 
   const initialDate = dataIndex.latest_date || preferredInitialDate();
   selectedDate = initialDate;
@@ -596,7 +647,7 @@ function aggregateFeaturesByCounty(features) {
   const groups = new Map();
   for (const feature of features) {
     const key = countyKey(feature);
-    if (!groups.has(key)) groups.set(key, []);
+    if (!groups.has(key)) groups.get(key, []);
     groups.get(key).push(feature);
   }
 
@@ -689,6 +740,32 @@ function renderCountyPanel(features, countyKey = "") {
   const generalRecords = uniqueFeaturesByAlert(generalFeatures);
   const nowcastingRecords = uniqueFeaturesByAlert(nowcastingFeatures);
 
+  let weatherHtml = "";
+  if (selectedDate === todayIso() || selectedDate === dataIndex.latest_date) {
+    if (currentWeather && currentWeather.by_county && currentWeather.by_county[countyName]) {
+      const stations = currentWeather.by_county[countyName];
+      const stationList = stations.map(s => {
+          const temp = s.temperature_c !== null ? `${s.temperature_c}°C` : "N/A";
+          const desc = s.weather ? `, ${s.weather.toLowerCase()}` : "";
+          return `<li>${escapeHtml(s.station_name)}: ${temp}${escapeHtml(desc)}</li>`;
+      }).join("");
+      const updated = currentWeather.fetched_at_utc ? formatUtcStamp(currentWeather.fetched_at_utc) : "necunoscut";
+      weatherHtml = `
+        <div class="weather-panel">
+          <h3>Starea vremii acum în județ</h3>
+          <p class="weather-meta">Actualizat: ${escapeHtml(updated)}</p>
+          <ul class="weather-stations">
+            ${stationList}
+          </ul>
+        </div>
+      `;
+    } else {
+      weatherHtml = `<p class="weather-meta">Nu există observații curente disponibile pentru acest județ.</p>`;
+    }
+  } else {
+    weatherHtml = `<p class="weather-meta">Observațiile meteo curente sunt disponibile doar pentru ziua curentă.</p>`;
+  }
+
   featureDetailsElement.classList.remove("empty-state");
   featureDetailsElement.innerHTML = `
     <div class="selected-zone">
@@ -709,6 +786,7 @@ function renderCountyPanel(features, countyKey = "") {
         ${nowcastingRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
       </div>
     ` : ""}
+    ${weatherHtml}
   `;
 }
 
@@ -1225,12 +1303,8 @@ function renderCalendar() {
     const title = info
       ? info.has_archive && !info.has_geojson
         ? `${pluralAnmAlerts(info.alert_count)} în arhivă · fără hartă GeoJSON`
-        : `${pluralAnmAlerts(info.alert_count)} · ${pluralZones(info.feature_count)} · cod maxim ${COD_NAME[code] || "-"}`
+        : `${pluralAnmAlerts(info.alert_count)} · ${info.nowcasting_count || 0} nowcasting · cod maxim ${COD_NAME[code] || "-"}`
       : "fără date";
-    cells += `<button type="button" class="cal-cell ${codeClass} ${selectedClass}" data-iso="${iso}" title="${escapeHtml(title)}">${day}</button>`;
-  }
-
-  calendarElement.innerHTML = `
     <div class="cal-head">
       <button type="button" class="icon-button" id="cal-prev" aria-label="Luna anterioară">‹</button>
       <span>${first.toLocaleDateString("ro-RO", { month: "long", year: "numeric" })}</span>
