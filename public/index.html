@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=2027-2">
+    <link rel="stylesheet" href="css/style.css?v=2027-3">
   </head>
   <body>
     <header class="app-header dashboard-header">
@@ -70,11 +70,11 @@
             <button type="button" class="action-button reset-button" id="reset-filters-button">Reset filtre</button>
           </div>
         </aside>
-        <section class="map-section">
-          <div class="map-stage">
-            <div id="day-summary" class="map-floating-summary" aria-live="polite">
-              <div class="summary-loading">Se încarcă rezumatul zilei...</div>
-            </div>
+        <section class="map-section" style="display: flex; flex-direction: column; gap: 12px;">
+          <div id="day-summary" aria-live="polite">
+            <div class="summary-loading">Se încarcă rezumatul zilei...</div>
+          </div>
+          <div class="map-stage" style="flex-grow: 1;">
             <aside class="map-floating-county" aria-labelledby="selected-feature-title">
               <h2 id="selected-feature-title" class="section-title">Județ selectat</h2>
               <div id="feature-details" class="feature-details empty-state">Selectează un județ pe hartă.</div>
@@ -145,6 +145,6 @@
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=2027-2"></script>
+    <script src="js/app.js?v=2027-3"></script>
   </body>
 </html>
