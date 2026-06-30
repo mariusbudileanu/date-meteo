@@ -8,7 +8,7 @@ const NO_ALERTS_MESSAGE = "Nu există avertizări arhivate pentru această dată
 const NO_NOWCASTING_MESSAGE = "Nu există avertizări nowcasting active în acest moment.";
 const ARCHIVE_ONLY_MESSAGE = "Există înregistrări în arhivă pentru această dată, dar nu există hartă GeoJSON disponibilă.";
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
-const COD_COLOR = { 1: "#FDE047", 2: "#FB923C", 3: "#F43F5E" };
+const COD_COLOR = { 1: "#FBBF24", 2: "#F97316", 3: "#EF4444" };
 const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
 const COUNTY_CODES = new Set([
   "AB", "AR", "AG", "B", "BC", "BH", "BN", "BR", "BT", "BV", "BZ", "CJ", "CL", "CS", "CT", "CV",
@@ -631,19 +631,28 @@ function aggregateFeaturesByCounty(features) {
   });
 }
 
+const ALERT_STYLES = {
+  1: { color: "#FBBF24", fillColor: "#FBBF24", fillOpacity: 0.24, weight: 1.4 },
+  2: { color: "#F97316", fillColor: "#F97316", fillOpacity: 0.28, weight: 1.6 },
+  3: { color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.32, weight: 1.8 }
+};
+
 function aggregateStyle(feature) {
   const props = feature.properties || {};
   const code = safeNumber(props.max_code, 0);
+  if (code === 0) return { color: "transparent", fillColor: "transparent", weight: 0 };
+  const style = ALERT_STYLES[code] || { color: "#94a3b8", fillColor: "#94a3b8", fillOpacity: 0.2, weight: 1 };
+  
   const secondary = safeNumber(props.secondary_code, 0);
-  const color = COD_COLOR[code] || "#94a3b8";
-  const outline = props.has_overlap ? (COD_COLOR[secondary] || "#ffffff") : color;
+  const outline = props.has_overlap && secondary ? COD_COLOR[secondary] : style.color;
+  
   return {
     color: outline,
-    fillColor: color,
-    weight: props.has_overlap ? 3.4 : 1.5,
+    fillColor: style.fillColor,
+    weight: props.has_overlap ? 2.5 : style.weight,
     opacity: 1,
     dashArray: props.has_overlap ? "5 3" : props.has_nowcasting ? "3 4" : null,
-    fillOpacity: code === 3 ? 0.64 : 0.56,
+    fillOpacity: style.fillOpacity,
     className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : "", props.has_nowcasting ? "has-nowcasting" : ""].filter(Boolean).join(" "),
   };
 }
@@ -668,10 +677,21 @@ function onEachAggregateFeature(feature, layer) {
       selectedCounty = selectedCountyKey;
       const countyFeatures = getVisibleFeaturesForCounty(selectedCountyKey);
       renderSelectedCountyPanel(selectedCountyKey, countyFeatures.length ? countyFeatures : (props.features || []));
-    },
-    mouseover: () => layer.setStyle({ weight: props.has_overlap ? 4.4 : 2.6, fillOpacity: 0.72 }),
-    mouseout: () => alertsLayer?.resetStyle(layer),
+    }
   });
+
+  const originalStyle = aggregateStyle(feature);
+  if (originalStyle.fillOpacity !== undefined && originalStyle.weight !== 0) {
+    layer.on("mouseover", () => {
+      layer.setStyle({
+        weight: 3,
+        fillOpacity: Math.min(originalStyle.fillOpacity + 0.12, 0.48)
+      });
+    });
+    layer.on("mouseout", () => {
+      layer.setStyle(originalStyle);
+    });
+  }
 }
 
 function renderSelectedEmpty(message = "Selectează un județ de pe hartă pentru detalii despre avertizările active.") {

@@ -1,179 +1,155 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ro">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoAlertRO</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=nowcasting-weather-1">
+    <link rel="stylesheet" href="css/style.css?v=2027-1">
   </head>
   <body>
     <header class="app-header dashboard-header">
-      <div class="brand-block">
-        <h1>MeteoAlertRO</h1>
-        <p class="header-subtitle">Avertizări meteo ANM pe hartă</p>
-        <p class="header-meta">Date oficiale <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a> · arhivare și monitorizare în timp real</p>
-        <p id="last-updated" class="last-updated">Ultima actualizare: se încarcă...</p>
+      <div class="app-header-inner">
+        <div class="brand-block">
+          <h1 class="dashboard-title">MeteoAlertRO</h1>
+          <p class="header-subtitle">Avertizări meteo ANM pe hartă</p>
+        </div>
+        <div class="header-meta-block">
+          <p class="header-meta">Date oficiale <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a></p>
+          <p id="last-updated" class="last-updated data-text">Ultima actualizare: se încarcă...</p>
+        </div>
       </div>
     </header>
-
     <main class="main-content dashboard-content">
-      <section class="day-summary dashboard-kpis" id="day-summary" aria-live="polite">
-        <div class="summary-loading">Se încarcă rezumatul zilei...</div>
-      </section>
-      <p id="status" class="status-note" role="status" aria-live="polite">Se încarcă...</p>
-
-      <section class="control-center" aria-label="Control center avertizări">
-        <div class="calendar-control">
-          <div class="control-heading">
-            <h2 id="calendar-title">Data</h2>
+      <div class="dashboard-shell">
+        <aside class="control-sidebar">
+          <div class="calendar-control">
+            <div class="control-heading">
+              <h2 id="calendar-title" class="section-title">Data</h2>
+            </div>
+            <div id="calendar" class="calendar" aria-label="Calendar avertizări meteo"></div>
           </div>
-          <div id="calendar" class="calendar" aria-label="Calendar avertizări meteo"></div>
-        </div>
-
-        <div class="control-grid">
-          <button type="button" class="secondary-button" id="latest-alerts-button">Ultimele alerte</button>
-
-          <label class="filter-control" for="source-filter">
-            <span>Sursă</span>
-            <select id="source-filter">
-              <option value="general">General ANM</option>
-              <option value="nowcasting">Nowcasting</option>
-              <option value="all">General + Nowcasting</option>
-            </select>
-          </label>
-
-          <label class="filter-control" for="phenomenon-filter">
-            <span>Fenomen</span>
-            <select id="phenomenon-filter"></select>
-          </label>
-
-          <label class="filter-control" for="severity-filter">
-            <span>Cod</span>
-            <select id="severity-filter">
-              <option value="all">Toate codurile</option>
-              <option value="1">Galben</option>
-              <option value="2">Portocaliu</option>
-              <option value="3">Roșu</option>
-            </select>
-          </label>
-
-          <label class="filter-control" for="map-mode">
-            <span>Mod hartă</span>
-            <select id="map-mode">
-              <option value="max">Cod maxim pe județ</option>
-              <option value="phenomenon">Pe fenomen</option>
-              <option value="alert">Pe avertizare ANM</option>
-              <option value="compare">Compară avertizările</option>
-            </select>
-          </label>
-
-          <label class="toggle-control" for="nowcasting-toggle">
-            <input type="checkbox" id="nowcasting-toggle">
-            <span>Afișează nowcasting</span>
-          </label>
-
-          <label class="toggle-control" for="overlap-filter">
-            <input type="checkbox" id="overlap-filter">
-            <span>Doar județe cu alerte multiple</span>
-          </label>
-
-          <button type="button" class="secondary-button reset-button" id="reset-filters-button">Reset filtre</button>
-        </div>
-      </section>
-
-      <section class="map-section" aria-label="Hartă și detalii avertizări">
-        <div class="map-stage">
-          <div class="visible-alerts-strip" aria-live="polite">
-            <span>Alerte afișate pe hartă:</span>
-            <div id="visible-alert-chips" class="visible-alert-chips">Nu există alerte afișate.</div>
+          <div class="control-grid">
+            <button type="button" class="action-button" id="latest-alerts-button">Ultimele alerte</button>
+            <label class="filter-control">
+              <span class="kpi-label">Sursă</span>
+              <select id="source-filter">
+                <option value="general">General ANM</option>
+                <option value="nowcasting">Nowcasting</option>
+                <option value="all">General + Nowcasting</option>
+              </select>
+            </label>
+            <label class="filter-control">
+              <span class="kpi-label">Fenomen</span>
+              <select id="phenomenon-filter"></select>
+            </label>
+            <label class="filter-control">
+              <span class="kpi-label">Cod</span>
+              <select id="severity-filter">
+                <option value="all">Toate codurile</option>
+                <option value="1">Galben</option>
+                <option value="2">Portocaliu</option>
+                <option value="3">Roșu</option>
+              </select>
+            </label>
+            <label class="filter-control">
+              <span class="kpi-label">Mod hartă</span>
+              <select id="map-mode">
+                <option value="max">Cod maxim pe județ</option>
+                <option value="phenomenon">Pe fenomen</option>
+                <option value="alert">Pe avertizare ANM</option>
+                <option value="compare">Compară avertizările</option>
+              </select>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="nowcasting-toggle">
+              <span class="kpi-label">Afișează nowcasting</span>
+            </label>
+            <label class="toggle-control">
+              <input type="checkbox" id="overlap-filter">
+              <span class="kpi-label">Doar județe cu alerte multiple</span>
+            </label>
+            <button type="button" class="action-button reset-button" id="reset-filters-button">Reset filtre</button>
           </div>
-          <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
-        </div>
-        <aside class="detail-panel" aria-labelledby="selected-feature-title">
-          <h2 id="selected-feature-title">Județ selectat</h2>
-          <div id="feature-details" class="feature-details empty-state">Selectează un județ de pe hartă pentru detalii despre avertizările active.</div>
         </aside>
-      </section>
-
+        <section class="map-section">
+          <div class="map-stage">
+            <div id="day-summary" class="map-floating-summary" aria-live="polite">
+              <div class="summary-loading">Se încarcă rezumatul zilei...</div>
+            </div>
+            <aside class="map-floating-county" aria-labelledby="selected-feature-title">
+              <h2 id="selected-feature-title" class="section-title">Județ selectat</h2>
+              <div id="feature-details" class="feature-details empty-state">Selectează un județ pe hartă.</div>
+            </aside>
+            <p id="status" class="status-note" role="status" aria-live="polite">Se încarcă...</p>
+            <div class="visible-alerts-strip" aria-live="polite">
+              <span class="kpi-label">Afișate:</span>
+              <div id="visible-alert-chips" class="visible-alert-chips">Nu există alerte afișate.</div>
+            </div>
+            <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
+          </div>
+        </section>
+      </div>
       <section class="alerts-summary-section" aria-labelledby="alerts-summary-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Alerte generale ANM</p>
-            <h2 id="alerts-summary-title">Avertizări active pentru data selectată</h2>
+            <p class="kpi-label">Alerte generale ANM</p>
+            <h2 id="alerts-summary-title" class="section-title">Avertizări active</h2>
           </div>
         </div>
-        <div id="alerts-summary" class="alerts-summary empty-state">Nu există avertizări încărcate.</div>
+        <div id="alerts-summary" class="alerts-summary empty-state">Nu există avertizări.</div>
       </section>
-
       <section class="compare-section" id="compare-section" aria-labelledby="compare-title" hidden>
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Comparare</p>
-            <h2 id="compare-title">Compară avertizările</h2>
+            <p class="kpi-label">Comparare</p>
+            <h2 id="compare-title" class="section-title">Compară avertizările</h2>
           </div>
         </div>
         <div id="compare-alerts" class="compare-alerts"></div>
       </section>
-
       <section class="nowcasting-section" id="nowcasting-section" aria-labelledby="nowcasting-title" hidden>
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Nowcasting</p>
-            <h2 id="nowcasting-title">Nowcasting activ</h2>
+            <p class="kpi-label">Nowcasting</p>
+            <h2 id="nowcasting-title" class="section-title">Nowcasting activ</h2>
           </div>
         </div>
         <div id="nowcasting-summary" class="alerts-summary"></div>
       </section>
-
       <section class="history-section" id="history-section" aria-labelledby="history-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Arhivă</p>
-            <h2 id="history-title">Istoric acumulat pe județ</h2>
-            <p class="section-description">Statisticile se acumulează automat pe măsură ce aplicația colectează avertizări în timp.</p>
+            <p class="kpi-label">Arhivă</p>
+            <h2 id="history-title" class="section-title">Istoric județ</h2>
           </div>
-          <label class="county-control" for="county-selector">
-            <span>Județ</span>
+          <label class="county-control">
+            <span class="kpi-label">Județ</span>
             <select id="county-selector"></select>
           </label>
         </div>
-        <div id="county-history" class="empty-state">Nu există statistici încărcate.</div>
+        <div id="county-history" class="empty-state">Nu există statistici.</div>
       </section>
-
       <section class="downloads-section" id="downloads-section" aria-labelledby="downloads-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Date brute</p>
-            <h2 id="downloads-title">Descărcări CSV</h2>
-            <p class="section-description">Fișiere CSV lunare generate automat din fluxurile ANM colectate.</p>
+            <p class="kpi-label">Date brute</p>
+            <h2 id="downloads-title" class="section-title">Descărcări CSV</h2>
           </div>
         </div>
-        <div class="downloads-table-wrap">
-          <table class="downloads-table">
-            <thead>
-              <tr>
-                <th>Lună</th>
-                <th>Alerte</th>
-                <th>Interval</th>
-                <th>Cod max</th>
-                <th>CSV</th>
-              </tr>
-            </thead>
-            <tbody id="downloads-table-body">
-              <tr><td colspan="5">Se încarcă...</td></tr>
-            </tbody>
-          </table>
+        <div class="data-card-grid" id="downloads-table-body">
+          <div class="data-card">Se încarcă...</div>
         </div>
       </section>
     </main>
-
     <footer class="app-footer">
-      MeteoAlertRO utilizează date oficiale publicate de Administrația Națională de Meteorologie – <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a>. Acesta este un proiect de colectare, arhivare și vizualizare a avertizărilor meteo în timp real, cu scop de monitorizare pe termen lung.
+      MeteoAlertRO utilizează date oficiale de la <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a>.
     </footer>
-
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=nowcasting-weather-1"></script>
+    <script src="js/app.js?v=2027-1"></script>
   </body>
 </html>
