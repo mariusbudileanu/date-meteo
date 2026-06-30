@@ -558,7 +558,7 @@ function renderDaySummary(features, dateLabel) {
   const updatedUtc = dataIndex.generated_at_utc;
   let updatedLocal = "necunoscută";
   if (updatedUtc) {
-    const dt = new Date(updatedUtc + "Z");
+    const dt = new Date(updatedUtc.replace(" ", "T") + "Z");
     if (!isNaN(dt.getTime())) {
       const pad = (n) => n.toString().padStart(2, "0");
       updatedLocal = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
