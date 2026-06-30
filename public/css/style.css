@@ -297,6 +297,12 @@ h3 {
   background: #161f31;
 }
 
+.cal-cell.archived-only {
+  color: var(--text);
+  background: #1f2937;
+  border-style: dashed;
+}
+
 .cal-cell.future {
   outline: 2px dashed rgba(255, 255, 255, 0.42);
   outline-offset: -4px;

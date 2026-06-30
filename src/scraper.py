@@ -3,12 +3,12 @@
 MeteoAlertRO — scraper ANM (fără dependențe externe, doar stdlib).
 
 Flux: fetch XML (general + nowcasting) -> parse avertizari -> upsert in arhiva CSV lunara
-      -> regenereaza: data/<zi>.geojson, data/index.json, data/history_stats.json,
+      -> actualizeaza: data/<zi>.geojson, data/index.json, data/history_stats.json,
          data/latest.geojson, istoric/index.json, istoric/README.md
 
 Reguli importante:
   * O <avertizare> = o fereastra de valabilitate (intervalul) cu culori fixe pe judet.
-  * Evolutia zi-cu-zi = mai multe <avertizare> consecutive -> rezolvare "max culoare/judet" pe zi.
+  * Daily GeoJSON pastreaza toate alertele suprapuse; codul maxim e metadata/UI.
   * General si nowcasting sunt SEPARATE: nowcasting NU coloreaza calendarul si e strat propriu.
 
 Rulare normala:           python scraper.py
@@ -105,6 +105,14 @@ def parse_xml_datetime(value):
         return datetime.strptime(value, "%Y-%m-%dT%H:%M")
     except ValueError:
         return None
+
+def parse_iso_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return parse_xml_datetime(value)
 
 def parse_interval_text(text, base_year):
     m = INTERVAL_RE.search(html.unescape(text or ""))
@@ -476,46 +484,139 @@ def build_daily_geojson(alerts, day):
         "features": feats,
     }
 
-def cleanup_stale_future_geojson(valid_days):
+def daily_geojson_paths():
     if not os.path.isdir(DATA):
-        return
-    today = today_iso()
-    valid = set(valid_days)
-    for name in os.listdir(DATA):
-        if not re.match(r"^\d{4}-\d{2}-\d{2}\.geojson$", name):
+        return []
+    return [
+        os.path.join(DATA, name)
+        for name in sorted(os.listdir(DATA))
+        if re.match(r"^\d{4}-\d{2}-\d{2}\.geojson$", name)
+    ]
+
+def index_entry_from_geojson(day, fc):
+    feats = fc.get("features", [])
+    meta = fc.get("metadata", {})
+    general_feats = [f for f in feats if f.get("properties", {}).get("source") == "general"]
+    codes = sorted({
+        int(f.get("properties", {}).get("cod_culoare") or 0)
+        for f in general_feats
+        if int(f.get("properties", {}).get("cod_culoare") or 0) > 0
+    })
+    phenomena = sorted({
+        f.get("properties", {}).get("fenomen_group")
+        or phenomenon_group(f.get("properties", {}).get("fenomen_principal", ""))
+        for f in general_feats
+        if f.get("properties")
+    })
+    max_color = meta.get("max_color")
+    if max_color is None:
+        max_color = max(codes, default=0)
+    return {
+        "date": day,
+        "alert_count": meta.get("alert_count", len({f.get("properties", {}).get("alert_id") for f in general_feats if f.get("properties", {}).get("alert_id")})),
+        "feature_count": meta.get("feature_count", len(general_feats)),
+        "max_color": max_color,
+        "max_code": max_color,
+        "nowcasting_count": meta.get("nowcasting_count", 0),
+        "has_nowcasting": bool(meta.get("nowcasting_count", 0)),
+        "has_geojson": True,
+        "has_archive": False,
+        "file": f"{day}.geojson",
+        "codes": codes,
+        "phenomena": phenomena,
+    }
+
+def archive_index_entries():
+    by_day = defaultdict(lambda: {
+        "alert_ids": set(),
+        "codes": set(),
+        "phenomena": set(),
+        "max_color": 0,
+    })
+    for path in sorted(glob_csv()):
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                start = parse_iso_datetime(r.get("interval_start"))
+                end = parse_iso_datetime(r.get("interval_end"))
+                if not start or not end:
+                    continue
+                code = int(r.get("cod_culoare_max") or 0)
+                try:
+                    fen_by_code = json.loads(r.get("fenomene_pe_cod_json") or "{}")
+                except json.JSONDecodeError:
+                    fen_by_code = {}
+                phenomena = {
+                    phenomenon_group(text)
+                    for text in fen_by_code.values()
+                    if str(text).strip()
+                }
+                for day in zile_acoperite(start, end):
+                    entry = by_day[day]
+                    entry["alert_ids"].add(r.get("alert_id") or r.get("content_hash") or day)
+                    if code > 0:
+                        entry["codes"].add(code)
+                    entry["phenomena"].update(phenomena)
+                    entry["max_color"] = max(entry["max_color"], code)
+    return by_day
+
+def rebuild_data_index():
+    t = today_iso()
+    dates = {}
+    for path in daily_geojson_paths():
+        day = os.path.basename(path)[:-8]
+        try:
+            with open(path, encoding="utf-8") as f:
+                fc = json.load(f)
+        except (OSError, json.JSONDecodeError):
             continue
-        day = name[:-8]
-        if day > today and day not in valid:
-            os.remove(os.path.join(DATA, name))
+        dates[day] = index_entry_from_geojson(day, fc)
+
+    for day, archived in archive_index_entries().items():
+        if day in dates:
+            dates[day]["has_archive"] = True
+            dates[day]["archive_alert_count"] = len(archived["alert_ids"])
+            continue
+        dates[day] = {
+            "date": day,
+            "file": None,
+            "has_geojson": False,
+            "has_archive": True,
+            "alert_count": len(archived["alert_ids"]),
+            "feature_count": 0,
+            "max_color": None,
+            "max_code": None,
+            "nowcasting_count": 0,
+            "has_nowcasting": False,
+            "codes": sorted(archived["codes"]),
+            "phenomena": sorted(archived["phenomena"]),
+        }
+
+    geojson_days = [day for day, entry in dates.items() if entry.get("has_geojson")]
+    current_geojson_days = [day for day in geojson_days if day <= t]
+    latest_day = max(current_geojson_days) if current_geojson_days else (max(geojson_days) if geojson_days else None)
+    index = {
+        "generated_at_utc": now_utc(),
+        "today": t,
+        "latest_date": latest_day,
+        "dates": {day: dates[day] for day in sorted(dates)},
+    }
+    write_json(os.path.join(DATA, "index.json"), index)
+    return index, latest_day
 
 def generate_all(alerts):
     all_days = sorted(set().union(*[set(a["zile"]) for a in alerts])) if alerts else []
-    cleanup_stale_future_geojson(all_days)
-    t = today_iso()
-    cand = [d for d in all_days if d <= t]
-    latest_day = (max(cand) if cand else (all_days[0] if all_days else None))
-
-    index = {"generated_at_utc": now_utc(), "today": t, "latest_date": latest_day, "dates": {}}
     for day in all_days:
         fc = build_daily_geojson(alerts, day)
         write_json(os.path.join(DATA, f"{day}.geojson"), fc)
-        gen_feats = [f for f in fc["features"] if f["properties"]["source"] == "general"]
-        codes = sorted({f["properties"]["cod_culoare"] for f in gen_feats if f["properties"].get("cod_culoare", 0) > 0})
-        phenomena = sorted({f["properties"].get("fenomen_group") or phenomenon_group(f["properties"].get("fenomen_principal", "")) for f in gen_feats})
-        index["dates"][day] = {
-            "alert_count": fc["metadata"]["alert_count"],
-            "feature_count": fc["metadata"]["feature_count"],
-            "max_color": fc["metadata"]["max_color"],
-            "nowcasting_count": fc["metadata"]["nowcasting_count"],
-            "has_nowcasting": fc["metadata"]["nowcasting_count"] > 0,
-            "file": f"{day}.geojson",
-            "codes": codes,
-            "phenomena": phenomena,
-        }
-    write_json(os.path.join(DATA, "index.json"), index)
 
+    index, latest_day = rebuild_data_index()
     if latest_day:
-        latest = build_daily_geojson(alerts, latest_day)
+        latest_path = os.path.join(DATA, f"{latest_day}.geojson")
+        if latest_day in all_days:
+            latest = build_daily_geojson(alerts, latest_day)
+        else:
+            with open(latest_path, encoding="utf-8") as f:
+                latest = json.load(f)
         latest["metadata"]["latest_for_date"] = latest_day
         write_json(os.path.join(DATA, "latest.geojson"), latest)
 

@@ -2,10 +2,22 @@
 Teste pentru scraper.py — rulează cu:  python test_scraper.py   (sau: pytest test_scraper.py)
 Nu necesită rețea: folosește un XML sintetic. Fără dependențe externe.
 """
-import json, math, os, tempfile
+import contextlib, json, math, os, tempfile
 
 os.environ["METEO_OUT"] = tempfile.mkdtemp(prefix="meteo_test_")
 import scraper as S
+
+@contextlib.contextmanager
+def isolated_output():
+    old = S.PUBLIC, S.DATA, S.ISTORIC
+    base = tempfile.mkdtemp(prefix="meteo_test_isolated_")
+    S.PUBLIC = base
+    S.DATA = os.path.join(base, "data")
+    S.ISTORIC = os.path.join(base, "istoric")
+    try:
+        yield base
+    finally:
+        S.PUBLIC, S.DATA, S.ISTORIC = old
 
 R = 6378137.0
 def fwd(lon, lat):  # WGS84 -> Web Mercator (forward), pt. a construi fixture-uri
@@ -193,6 +205,54 @@ def test_full_run_idempotent():
     hs = json.load(open(os.path.join(base,"data","history_stats.json")))
     assert isinstance(hs["counties"], list)
     print(f"ok full_run_idempotent (rânduri={rows1})")
+
+def test_existing_daily_geojson_stays_in_index():
+    with isolated_output() as base:
+        os.makedirs(os.path.join(base, "data"), exist_ok=True)
+        old_fc = {
+            "type": "FeatureCollection",
+            "metadata": {
+                "date": "2026-06-15",
+                "alert_count": 1,
+                "feature_count": 1,
+                "max_color": 1,
+                "nowcasting_count": 0,
+                "active_alerts": [],
+            },
+            "features": [{
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [[[23, 46], [23.1, 46], [23.1, 46.1], [23, 46.1], [23, 46]]]},
+                "properties": {
+                    "alert_id": "old-alert",
+                    "source": "general",
+                    "judet_cod": "CJ",
+                    "cod_culoare": 1,
+                    "fenomen_principal": "ploi",
+                    "fenomen_group": "ploi/vijelii",
+                },
+            }],
+        }
+        with open(os.path.join(base, "data", "2026-06-15.geojson"), "w", encoding="utf-8") as f:
+            json.dump(old_fc, f)
+        alerts = S.parse_avertizari(GENERAL_XML, "general")
+        idx, _ = S.generate_all(alerts)
+        assert idx["dates"]["2026-06-15"]["has_geojson"] is True
+        assert idx["dates"]["2026-06-15"]["file"] == "2026-06-15.geojson"
+        assert os.path.exists(os.path.join(base, "data", "2026-06-15.geojson"))
+    print("ok existing_daily_geojson_stays_in_index")
+
+def test_archive_only_date_in_index():
+    with isolated_output() as base:
+        alerts = S.parse_avertizari(GENERAL_XML, "general")
+        S.upsert_archive(alerts)
+        idx, _ = S.generate_all([])
+        assert "2026-06-28" in idx["dates"]
+        entry = idx["dates"]["2026-06-28"]
+        assert entry["has_archive"] is True
+        assert entry["has_geojson"] is False
+        assert entry["file"] is None
+        assert entry["alert_count"] >= 1
+    print("ok archive_only_date_in_index")
 
 if __name__ == "__main__":
     fns = [v for k,v in sorted(globals().items()) if k.startswith("test_")]
