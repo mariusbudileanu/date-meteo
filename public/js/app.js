@@ -87,8 +87,10 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
 }).addTo(map);
 
 map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
-setTimeout(() => map.invalidateSize(true), 500);
-setTimeout(() => map.invalidateSize(true), 1500);
+window.addEventListener("resize", debounce(refreshMapSize, 150));
+window.addEventListener("orientationchange", () => setTimeout(refreshMapSize, 250));
+setTimeout(refreshMapSize, 500);
+setTimeout(refreshMapSize, 1500);
 
 populatePhenomenonFilter();
 addLegend();
@@ -279,6 +281,7 @@ function updateDashboard() {
     renderSelectedEmpty();
   }
   publishDebugState(visibleFeatures, cardRecords);
+  refreshMapSize();
 }
 
 function publishDebugState(visibleFeatures, cardRecords) {
@@ -1354,6 +1357,22 @@ function updateLegendActiveState() {
   const active = selectedSeverity || "all";
   document.querySelectorAll(".legend-filter").forEach((button) => {
     button.classList.toggle("active", (button.dataset.severity || "all") === active);
+  });
+}
+
+function debounce(fn, wait = 150) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
+function refreshMapSize() {
+  if (!map) return;
+  requestAnimationFrame(() => {
+    map.invalidateSize(true);
+    refitMapToCurrentLayer();
   });
 }
 
