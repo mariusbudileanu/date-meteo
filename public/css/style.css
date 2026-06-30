@@ -2367,3 +2367,18 @@ button:focus-visible, a:focus-visible, select:focus-visible {
   outline: 2px solid var(--color-accent-cyan);
   outline-offset: 3px;
 }
+
+/* KPI Cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--space-sm);
+  margin-top: 10px;
+}
+.kpi-card {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.72));
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  box-shadow: var(--shadow-card);
+}

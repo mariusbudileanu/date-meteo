@@ -543,29 +543,47 @@ function renderDaySummary(features, dateLabel) {
   const alertCount = countDistinctAlerts(features);
   const zoneCount = countDistinctCounties(features);
   const maxCode = maxCodeFromFeatures(features);
-  const phenomena = activePhenomenaLabels(features);
+  
+  // Actually count nowcasting vs general
+  let generalCount = 0;
+  let nowcastCount = 0;
+  features.forEach(f => {
+    if (isNowcastingFeature(f)) nowcastCount++;
+    else generalCount++;
+  });
+  
   const dateText = formatDisplayDate(dateLabel || selectedDate || todayIso());
-  const updated = formatUtcStamp(dataIndex.generated_at_utc) || "necunoscută";
-
-  if (!features.length) {
-    daySummaryElement.innerHTML = `
-      ${summaryCard("Data selectată", dateText)}
-      ${summaryCard("Avertizări ANM", pluralAnmAlerts(0))}
-      ${summaryCard("Zone afectate", pluralZones(0))}
-      ${summaryCard("Cod maxim", "Fără cod")}
-      ${summaryCard("Fenomene active", "Nicio avertizare")}
-      ${summaryCard("Ultima actualizare", updated)}
-    `;
-    return;
+  
+  // Convert UTC to local Romanian time
+  const updatedUtc = dataIndex.generated_at_utc;
+  let updatedLocal = "necunoscută";
+  if (updatedUtc) {
+    const dt = new Date(updatedUtc + "Z");
+    if (!isNaN(dt.getTime())) {
+      const pad = (n) => n.toString().padStart(2, "0");
+      updatedLocal = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    }
   }
 
   daySummaryElement.innerHTML = `
-    ${summaryCard("Data selectată", dateText)}
-    ${summaryCard("Avertizări ANM", pluralAnmAlerts(alertCount))}
-    ${summaryCard("Zone afectate", pluralZones(zoneCount))}
-    ${summaryCard("Cod maxim", `Cod maxim: ${COD_NAME[maxCode] || "-"}`, `summary-code severity-${maxCode}`)}
-    ${summaryCard("Fenomene active", phenomena || PHENOMENON_FALLBACK)}
-    ${summaryCard("Ultima actualizare", updated)}
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-label">Data selectată</span>
+        <div class="kpi-value">${escapeHtml(dateText)}</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Avertizări active</span>
+        <div class="kpi-value">${alertCount}</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Cod maxim</span>
+        <div class="kpi-value" style="color: ${COD_COLOR[maxCode] || 'inherit'}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Actualizat la</span>
+        <div class="kpi-value">${escapeHtml(updatedLocal)}</div>
+      </div>
+    </div>
   `;
 }
 
