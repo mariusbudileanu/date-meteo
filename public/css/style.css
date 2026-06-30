@@ -1521,6 +1521,12 @@ h3 {
   background: rgba(34, 211, 238, 0.1);
 }
 
+.geometry-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .nowcasting-section {
   padding: 16px;
   border: 1px solid rgba(34, 211, 238, 0.18);

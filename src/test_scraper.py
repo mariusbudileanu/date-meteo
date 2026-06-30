@@ -40,6 +40,22 @@ NOWCAST_XML = ('<?xml version="1.0"?><avertizari>'
                  [("TM",2,21.0,45.7)], "COD PORTOCALIU Fenomene vizate: vijelii ")
     + '</avertizari>').encode()
 
+INTERNAL_INTERVAL_MESSAGE = (
+    "COD GALBEN Interval de valabilitate: 30 iunie, ora 12 – 30 iunie, ora 23 "
+    "Fenomene vizate: instabilitate atmosferica, averse Zone afectate: zona de munte "
+    "COD PORTOCALIU Interval de valabilitate: 30 iunie, ora 14 – 30 iunie, ora 20 "
+    "Fenomene vizate: vijelii puternice, grindina Zone avertizate: CJ"
+)
+
+MULTI_CODE_MESSAGE = (
+    "COD GALBEN Interval de valabilitate: 1 iulie, ora 10 – 1 iulie, ora 21 "
+    "Fenomene vizate: val de caldura Zone afectate: est "
+    "COD PORTOCALIU Interval de valabilitate: 1 iulie, ora 12 – 1 iulie, ora 21 "
+    "Fenomene vizate: canicula Zone afectate: vest "
+    "COD ROSU Interval de valabilitate: 1 iulie, ora 12 – 1 iulie, ora 18 "
+    "Fenomene vizate: temperaturi extreme Zone afectate: centru"
+)
+
 
 def test_interval_parsing():
     s, e = S.parse_interval("28 iunie, ora 10 – 29 iunie, ora 10", "2026-06-27T10:00", "2026-06-29T10:00")
@@ -48,6 +64,19 @@ def test_interval_parsing():
     s2, e2 = S.parse_interval("", "2026-06-29T12:00", "2026-06-29T14:00")
     assert s2.isoformat() == "2026-06-29T12:00:00"
     print("ok interval_parsing")
+
+def test_internal_interval_overrides_bad_xml_expiry():
+    s, e = S.parse_interval("conform textelor;", "2026-06-30T10:00", "2026-07-30T23:00", INTERNAL_INTERVAL_MESSAGE)
+    assert s.isoformat() == "2026-06-30T12:00:00"
+    assert e.isoformat() == "2026-06-30T23:00:00"
+    print("ok internal_interval_overrides_bad_xml_expiry")
+
+def test_multiple_code_sections():
+    sections = S.extract_sections_from_message(MULTI_CODE_MESSAGE, 2026)
+    assert [s["code"] for s in sections] == ["1", "2", "3"]
+    assert sections[0]["valid_from"].isoformat() == "2026-07-01T10:00:00"
+    assert sections[2]["valid_to"].isoformat() == "2026-07-01T18:00:00"
+    print("ok multiple_code_sections")
 
 def test_phenomena_by_code():
     fen = S.extract_phenomena_by_code(MESAJ)
@@ -74,6 +103,52 @@ def test_per_day_resolution_and_advance():
     # ziua 30 (viitor, cunoscut in avans) exista
     assert any(f for f in S.build_daily_geojson(alerts, "2026-06-30")["features"])
     print("ok per_day_resolution + advance")
+
+def test_overlapping_features_are_preserved():
+    heat_msg = "COD ROSU Interval de valabilitate: 30 iunie, ora 10 – 30 iunie, ora 23 Fenomene vizate: temperaturi extreme Zone afectate: CJ"
+    rain_msg = "COD GALBEN Interval de valabilitate: 30 iunie, ora 12 – 30 iunie, ora 23 Fenomene vizate: ploi si vijelii Zone afectate: CJ"
+    xml = ('<?xml version="1.0"?><avertizari>'
+        + avertizare("30 iunie, ora 10 – 30 iunie, ora 23", "2026-06-30T10:00", "2026-06-30T23:00",
+                     [("CJ",3,23.5,46.7)], heat_msg)
+        + avertizare("30 iunie, ora 12 – 30 iunie, ora 23", "2026-06-30T10:00", "2026-06-30T23:00",
+                     [("CJ",1,23.5,46.7)], rain_msg)
+        + '</avertizari>').encode()
+    alerts = S.parse_avertizari(xml, "general")
+    fc = S.build_daily_geojson(alerts, "2026-06-30")
+    cj = [f for f in fc["features"] if f["properties"]["judet_cod"] == "CJ"]
+    assert len(cj) == 2
+    assert fc["metadata"]["max_by_county"]["CJ"]["max_color"] == 3
+    assert len(fc["metadata"]["alerts_by_county"]["CJ"]) == 2
+    print("ok overlapping_features_are_preserved")
+
+def test_message_2_no_false_30_day_span():
+    xml = ('<?xml version="1.0"?><avertizari>'
+        + avertizare("conform textelor;", "2026-06-30T10:00", "2026-07-30T23:00",
+                     [("CJ",1,23.5,46.7), ("AB",2,23.2,46.0)], INTERNAL_INTERVAL_MESSAGE)
+        + '</avertizari>').encode()
+    alert = S.parse_avertizari(xml, "general")[0]
+    assert alert["zile"] == ["2026-06-30"], alert["zile"]
+    print("ok message_2_no_false_30_day_span")
+
+def test_july_1_contains_intersecting_alerts():
+    msg1 = "COD ROSU Interval de valabilitate: 30 iunie, ora 10 – 1 iulie, ora 10 Fenomene vizate: temperaturi extreme Zone afectate: CJ"
+    msg3 = "COD PORTOCALIU Interval de valabilitate: 1 iulie, ora 10 – 1 iulie, ora 21 Fenomene vizate: canicula Zone afectate: CJ"
+    msg4 = "COD GALBEN Interval de valabilitate: 1 iulie, ora 12 – 2 iulie, ora 10 Fenomene vizate: averse si vijelii Zone afectate: CJ"
+    xml = ('<?xml version="1.0"?><avertizari>'
+        + avertizare("conform textelor;", "2026-06-30T10:00", "2026-07-01T10:00",
+                     [("CJ",3,23.5,46.7)], msg1)
+        + avertizare("1 iulie, ora 10 – 1 iulie, ora 21", "2026-06-30T10:00", "2026-07-01T21:00",
+                     [("CJ",2,23.5,46.7)], msg3)
+        + avertizare("1 iulie, ora 12 – 2 iulie, ora 10", "2026-06-30T10:00", "2026-07-02T10:00",
+                     [("CJ",1,23.5,46.7)], msg4)
+        + '</avertizari>').encode()
+    alerts = S.parse_avertizari(xml, "general")
+    idx, _ = S.generate_all(alerts)
+    fc = json.load(open(os.path.join(os.environ["METEO_OUT"], "data", "2026-07-01.geojson"), encoding="utf-8"))
+    assert "2026-07-01" in idx["dates"]
+    assert len({f["properties"]["alert_id"] for f in fc["features"]}) == 3
+    assert fc["metadata"]["max_by_county"]["CJ"]["alert_count"] == 3
+    print("ok july_1_contains_intersecting_alerts")
 
 def test_alert_id_stable_and_content_hash():
     a1 = S.parse_avertizari(GENERAL_XML, "general")[0]

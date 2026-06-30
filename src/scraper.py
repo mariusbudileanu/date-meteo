@@ -55,6 +55,9 @@ def today_iso():
 def _norm(s):
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().upper()
 
+def month_number(name):
+    return {_norm(k): v for k, v in LUNI.items()}.get(_norm(name or ""))
+
 def merc_to_wgs(x, y):
     R = 6378137.0
     lon = (x / R) * 180.0 / math.pi
@@ -86,22 +89,96 @@ def wkt_to_geojson_geometry(wkt):
     return {"type": "MultiPolygon", "coordinates": coords}
 
 # ------------------------------------------------------------------ parsing ANM
-def parse_interval(intervalul, data_aparitiei, data_expirarii):
-    """(start_dt, end_dt). end = dataExpirarii; start din 'intervalul' sau, fallback, dataAparitiei."""
-    end_dt = datetime.strptime(data_expirarii, "%Y-%m-%dT%H:%M")
-    if intervalul:
-        left = re.split(r"[–—-]", intervalul)[0]
-        m = re.search(r"(\d{1,2})\s+([a-zăâîșțA-ZĂÂÎȘȚ]+).*?ora\s+(\d{1,2})", left)
-        if m and m.group(2).lower() in LUNI:
-            day, mon, hour = int(m.group(1)), LUNI[m.group(2).lower()], int(m.group(3))
-            year = end_dt.year - (1 if mon > end_dt.month else 0)
-            return datetime(year, mon, day, hour), end_dt
-    if data_aparitiei:
-        try:
-            return datetime.strptime(data_aparitiei, "%Y-%m-%dT%H:%M"), end_dt
-        except ValueError:
-            pass
-    return end_dt - timedelta(hours=3), end_dt
+MONTH_WORD = r"[A-Za-zĂÂÎȘȚăâîșț]+"
+INTERVAL_RE = re.compile(
+    rf"(\d{{1,2}})\s+({MONTH_WORD})\s*,?\s*ora\s+(\d{{1,2}})(?::(\d{{2}}))?"
+    rf"\s*[-–—]\s*"
+    rf"(\d{{1,2}})\s+({MONTH_WORD})\s*,?\s*ora\s+(\d{{1,2}})(?::(\d{{2}}))?",
+    re.I,
+)
+COD_RE = re.compile(r"\bCOD\s+(GALBEN|PORTOCALIU|RO[ȘS]U|ROSU|VERDE)\b", re.I)
+
+def parse_xml_datetime(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        return None
+
+def parse_interval_text(text, base_year):
+    m = INTERVAL_RE.search(html.unescape(text or ""))
+    if not m:
+        return None
+    sd, sm, sh, smin, ed, em, eh, emin = m.groups()
+    sm_num, em_num = month_number(sm), month_number(em)
+    if not sm_num or not em_num:
+        return None
+    start = datetime(base_year, sm_num, int(sd), int(sh), int(smin or 0))
+    end = datetime(base_year, em_num, int(ed), int(eh), int(emin or 0))
+    if end < start:
+        end = datetime(base_year + 1, em_num, int(ed), int(eh), int(emin or 0))
+    return start, end, re.sub(r"\s+", " ", m.group(0)).strip(" ;.")
+
+def extract_field(segment, label_re, stop_re):
+    m = re.search(label_re + r"\s*:?\s*(.+?)(?=" + stop_re + r")", segment, re.I | re.S)
+    if not m:
+        return ""
+    return re.sub(r"\s+", " ", m.group(1)).strip(" ;.")
+
+def extract_sections_from_message(mesaj_html, base_year):
+    txt = html_to_plain(mesaj_html)
+    heads = list(COD_RE.finditer(txt))
+    sections = []
+    for i, h in enumerate(heads):
+        code = NUME_TO_COD.get(_norm(h.group(1)))
+        if code is None:
+            continue
+        seg = txt[h.end(): heads[i + 1].start() if i + 1 < len(heads) else len(txt)]
+        interval = parse_interval_text(seg, base_year)
+        phenomena = (
+            extract_field(seg, r"Fenomene?\s+vizate", r"\n|Zone\s+(?:afectate|avertizate)|$")
+            or extract_field(seg, r"Fenomenul\s+vizat", r"\n|Zone\s+(?:afectate|avertizate)|$")
+        )
+        zones = extract_field(
+            seg,
+            r"Zone\s+(?:afectate|avertizate)",
+            r"\n|Luni|Marți|Marti|Miercuri|Joi|Vineri|Sâmbătă|Sambata|Duminică|Duminica|Notă|Nota|$",
+        )
+        sections.append({
+            "code": str(code),
+            "code_name": COD_TO_NUME[code],
+            "valid_from": interval[0] if interval else None,
+            "valid_to": interval[1] if interval else None,
+            "interval_text": interval[2] if interval else "",
+            "phenomena": phenomena,
+            "zones_text": zones,
+        })
+    return sections
+
+def parse_interval(intervalul, data_aparitiei, data_expirarii, mesaj_html=""):
+    """Return (start_dt, end_dt). Text intervals have priority over XML expiration."""
+    exp_dt = parse_xml_datetime(data_expirarii)
+    ap_dt = parse_xml_datetime(data_aparitiei)
+    base_year = (exp_dt or ap_dt or datetime.now()).year
+    if intervalul and "CONFORM TEXTELOR" not in _norm(intervalul):
+        parsed = parse_interval_text(intervalul, base_year)
+        if parsed:
+            return parsed[0], parsed[1]
+    if mesaj_html:
+        sections = [s for s in extract_sections_from_message(mesaj_html, base_year) if s["valid_from"] and s["valid_to"]]
+        if sections:
+            start = min(s["valid_from"] for s in sections)
+            end = max(s["valid_to"] for s in sections)
+            if exp_dt and abs((exp_dt - end).days) >= 2:
+                print(f"  ! interval text overrides XML dataExpirarii {data_expirarii} -> {end.isoformat()}", file=sys.stderr)
+            return start, end
+    if ap_dt and exp_dt:
+        return ap_dt, exp_dt
+    if exp_dt:
+        return exp_dt - timedelta(hours=3), exp_dt
+    now = datetime.now()
+    return now, now
 
 def zile_acoperite(start_dt, end_dt):
     d, out = start_dt.date(), []
@@ -115,6 +192,9 @@ def html_to_plain(mesaj_html):
     return re.sub(r"\n{2,}", "\n", txt).strip()
 
 def extract_phenomena_by_code(mesaj_html):
+    sections = extract_sections_from_message(mesaj_html, datetime.now().year)
+    if sections:
+        return {s["code"]: s["phenomena"] for s in sections if s["phenomena"]}
     txt = html_to_plain(mesaj_html)
     heads = list(re.finditer(r"COD\s+(GALBEN|PORTOCALIU|RO[ȘS]U|VERDE)", txt, re.I))
     out = {}
@@ -126,8 +206,12 @@ def extract_phenomena_by_code(mesaj_html):
             out[str(cod)] = re.sub(r"\s+", " ", m.group(1)).strip(" ;.")
     return out
 
-def make_alert_id(source, s_iso, e_iso, judete_codes):
-    base = "|".join([source, s_iso, e_iso, ",".join(sorted(judete_codes))])
+def make_alert_id(source, s_iso, e_iso, judete):
+    if isinstance(judete, dict):
+        judete_key = ",".join(f"{c}:{judete[c]}" for c in sorted(judete))
+    else:
+        judete_key = ",".join(sorted(judete))
+    base = "|".join([source, s_iso, e_iso, judete_key])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
 
 def make_content_hash(mesaj_plain, judete_culori):
@@ -141,7 +225,17 @@ def parse_avertizari(xml_bytes, source):
         a = av.attrib
         if not a.get("dataExpirarii"):
             continue
-        s, e = parse_interval(a.get("intervalul", ""), a.get("dataAparitiei", ""), a["dataExpirarii"])
+        exp_dt = parse_xml_datetime(a.get("dataExpirarii"))
+        ap_dt = parse_xml_datetime(a.get("dataAparitiei"))
+        base_year = (exp_dt or ap_dt or datetime.now()).year
+        sections = extract_sections_from_message(a.get("mesaj", ""), base_year)
+        sections_by_code = {}
+        for sec in sections:
+            if sec["code"] in sections_by_code:
+                print(f"  ! multiple sections for code {sec['code']} in one ANM message; keeping first", file=sys.stderr)
+                continue
+            sections_by_code[sec["code"]] = sec
+        s, e = parse_interval(a.get("intervalul", ""), a.get("dataAparitiei", ""), a["dataExpirarii"], a.get("mesaj", ""))
         judete = av.findall("judet")
         jud_cul, geom = {}, {}
         for j in judete:
@@ -155,21 +249,39 @@ def parse_avertizari(xml_bytes, source):
         if not jud_cul:
             continue
         mesaj_plain = html_to_plain(a.get("mesaj", ""))
+        fen = {code: sec["phenomena"] for code, sec in sections_by_code.items() if sec.get("phenomena")}
+        if not fen:
+            fen = extract_phenomena_by_code(a.get("mesaj", ""))
+        section_days = [
+            set(zile_acoperite(sec["valid_from"], sec["valid_to"]))
+            for sec in sections
+            if sec.get("valid_from") and sec.get("valid_to")
+        ]
+        zile = sorted(set().union(*section_days)) if section_days else zile_acoperite(s, e)
+        interval_text = a.get("intervalul", "")
+        section_intervals = []
+        for sec in sections:
+            if sec.get("interval_text") and sec["interval_text"] not in section_intervals:
+                section_intervals.append(sec["interval_text"])
+        if section_intervals and ("CONFORM TEXTELOR" in _norm(interval_text) or not interval_text):
+            interval_text = "; ".join(section_intervals)
         alerts.append({
             "source": source,
-            "alert_id": make_alert_id(source, s.isoformat(), e.isoformat(), list(jud_cul)),
+            "alert_id": make_alert_id(source, s.isoformat(), e.isoformat(), jud_cul),
             "content_hash": make_content_hash(mesaj_plain, jud_cul),
             "data_emitere": a.get("dataAparitiei", ""),
-            "interval_text": a.get("intervalul", ""),
+            "interval_text": interval_text,
             "interval_start": s.isoformat(),
             "interval_end": e.isoformat(),
             "durata_ore": round((e - s).total_seconds() / 3600, 1),
             "cod_culoare_max": max(jud_cul.values()),
             "zona_afectata_text": a.get("zonaAfectata", ""),
-            "zile": zile_acoperite(s, e),
+            "zile": zile,
             "jud": jud_cul,
             "geom": geom,
-            "fen": extract_phenomena_by_code(a.get("mesaj", "")),
+            "fen": fen,
+            "sections": sections,
+            "sections_by_code": sections_by_code,
             "mesaj_html": a.get("mesaj", ""),
             "mesaj_plain": mesaj_plain,
         })
@@ -218,11 +330,21 @@ def upsert_archive(alerts):
                 for r in csv.DictReader(f):
                     rows[r["alert_id"]] = r
         for al in group:
+            superseded_prima = []
+            for old_id, old_row in list(rows.items()):
+                same_source = old_row.get("source") == al["source"]
+                same_content = old_row.get("content_hash") == al["content_hash"]
+                if old_id != al["alert_id"] and same_source and same_content:
+                    superseded_prima.append(old_row.get("prima_aparitie_utc") or now_utc())
+                    del rows[old_id]
+
             cur = rows.get(al["alert_id"])
             if cur is None:
-                rows[al["alert_id"]] = alert_to_row(al, now_utc(), now_utc(), False)
-            elif cur.get("content_hash") != al["content_hash"]:
-                rows[al["alert_id"]] = alert_to_row(al, cur["prima_aparitie_utc"], now_utc(), True)
+                prima = min(superseded_prima + [now_utc()])
+                rows[al["alert_id"]] = alert_to_row(al, prima, now_utc(), bool(superseded_prima))
+            elif cur.get("content_hash") != al["content_hash"] or superseded_prima:
+                prima = min(superseded_prima + [cur["prima_aparitie_utc"]])
+                rows[al["alert_id"]] = alert_to_row(al, prima, now_utc(), True)
         with open(path, "w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=CSV_FIELDS); w.writeheader()
             for r in sorted(rows.values(), key=lambda x: x["interval_start"]):
@@ -234,31 +356,85 @@ def write_json(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
 
-def _winner_features(alerts_subset, day):
-    """Un feature per judet = max culoare intre avertizarile (din subset) active in ziua data."""
-    winner = {}
-    for al in alerts_subset:
-        if day in al["zile"]:
-            for jcod, cul in al["jud"].items():
-                if jcod not in winner or cul > winner[jcod][0]:
-                    winner[jcod] = (cul, al)
+def phenomenon_group(text):
+    t = _norm(text or "")
+    if re.search(r"CANICUL|CALDURA|TEMPERATURI|TROPICAL|DISCONFORT", t):
+        return "temperaturi extreme"
+    if re.search(r"PLOI|PLOAIE|AVERSE|VIJEL|FURTUN|GRINDIN|INSTABILITATE|DESCARCARI", t):
+        return "ploi/vijelii"
+    if re.search(r"NINSO|ZAPADA|VISCOL", t):
+        return "ninsori/viscol"
+    if re.search(r"CEATA", t):
+        return "ceata"
+    return "alte fenomene"
+
+def _section_for_code(al, cul):
+    return al.get("sections_by_code", {}).get(str(cul))
+
+def _feature_interval(al, cul):
+    sec = _section_for_code(al, cul)
+    if sec and sec.get("valid_from") and sec.get("valid_to"):
+        return sec["valid_from"], sec["valid_to"], sec.get("interval_text") or al["interval_text"]
+    return datetime.fromisoformat(al["interval_start"]), datetime.fromisoformat(al["interval_end"]), al["interval_text"]
+
+def _all_features(alerts_subset, day):
+    """All active features for a day. Overlapping alerts are preserved."""
     feats = []
-    for jcod, (cul, al) in sorted(winner.items()):
-        if jcod not in al["geom"]:
-            continue
-        feats.append({
-            "type": "Feature", "geometry": al["geom"][jcod],
-            "properties": {
-                "alert_id": al["alert_id"], "source": al["source"],
-                "judet_cod": jcod, "judet_nume": JUDETE.get(jcod, jcod),
-                "cod_culoare": cul, "cod_culoare_nume": COD_TO_NUME[cul],
-                "fenomen_principal": al["fen"].get(str(cul), ""),
-                "interval_text": al["interval_text"], "interval_start": al["interval_start"],
-                "interval_end": al["interval_end"], "data_expirare": al["interval_end"],
-                "durata_ore": al["durata_ore"], "zi": day,
-            },
-        })
+    for al in alerts_subset:
+        for jcod, cul in sorted(al["jud"].items()):
+            if cul <= 0 or jcod not in al["geom"]:
+                continue
+            fs, fe, interval_text = _feature_interval(al, cul)
+            if day not in zile_acoperite(fs, fe):
+                continue
+            fenomen = al["fen"].get(str(cul), "")
+            sec = _section_for_code(al, cul) or {}
+            feats.append({
+                "type": "Feature", "geometry": al["geom"][jcod],
+                "properties": {
+                    "alert_id": al["alert_id"], "source": al["source"],
+                    "judet_cod": jcod, "judet_nume": JUDETE.get(jcod, jcod),
+                    "cod_culoare": cul, "cod_culoare_nume": COD_TO_NUME[cul],
+                    "fenomen_principal": fenomen,
+                    "fenomen_group": phenomenon_group(fenomen),
+                    "zona_text": sec.get("zones_text") or al["zona_afectata_text"],
+                    "interval_text": interval_text, "interval_start": fs.isoformat(),
+                    "interval_end": fe.isoformat(), "data_expirare": fe.isoformat(),
+                    "durata_ore": round((fe - fs).total_seconds() / 3600, 1), "zi": day,
+                },
+            })
     return feats
+
+def _county_metadata(features):
+    grouped = defaultdict(list)
+    for feature in features:
+        grouped[feature["properties"]["judet_cod"]].append(feature)
+    alerts_by_county, max_by_county = {}, {}
+    for jcod, feats in sorted(grouped.items()):
+        entries = []
+        alert_ids = set()
+        max_color = 0
+        phenomena = set()
+        for feature in feats:
+            p = feature["properties"]
+            color = int(p.get("cod_culoare") or 0)
+            alert_ids.add(p.get("alert_id"))
+            max_color = max(max_color, color)
+            phenomena.add(p.get("fenomen_group") or phenomenon_group(p.get("fenomen_principal", "")))
+            entries.append({
+                "alert_id": p.get("alert_id"),
+                "cod": COD_TO_NUME.get(color, "Verde"),
+                "culoare": str(color),
+                "fenomen_group": p.get("fenomen_group") or phenomenon_group(p.get("fenomen_principal", "")),
+                "source": p.get("source", "general"),
+            })
+        alerts_by_county[jcod] = entries
+        max_by_county[jcod] = {
+            "max_color": max_color,
+            "alert_count": len(alert_ids),
+            "phenomena": sorted(phenomena),
+        }
+    return alerts_by_county, max_by_county
 
 def _alert_card(al):
     color_counts = {}
@@ -280,22 +456,41 @@ def build_daily_geojson(alerts, day):
     active = [a for a in alerts if day in a["zile"]]
     general = [a for a in active if a["source"] == "general"]
     nowcast = [a for a in active if a["source"] == "nowcasting"]
-    feats = _winner_features(general, day) + _winner_features(nowcast, day)
+    general_feats = _all_features(general, day)
+    nowcast_feats = _all_features(nowcast, day)
+    feats = general_feats + nowcast_feats
     cards = [_alert_card(a) for a in general] + [_alert_card(a) for a in nowcast]
+    alerts_by_county, max_by_county = _county_metadata(feats)
     return {
         "type": "FeatureCollection",
         "metadata": {
             "date": day,
             "alert_count": len({a["alert_id"] for a in general}),
-            "feature_count": len(_winner_features(general, day)),
+            "feature_count": len(general_feats),
+            "max_color": max((f["properties"]["cod_culoare"] for f in general_feats), default=0),
             "nowcasting_count": len({a["alert_id"] for a in nowcast}),
             "active_alerts": cards,
+            "alerts_by_county": alerts_by_county,
+            "max_by_county": max_by_county,
         },
         "features": feats,
     }
 
+def cleanup_stale_future_geojson(valid_days):
+    if not os.path.isdir(DATA):
+        return
+    today = today_iso()
+    valid = set(valid_days)
+    for name in os.listdir(DATA):
+        if not re.match(r"^\d{4}-\d{2}-\d{2}\.geojson$", name):
+            continue
+        day = name[:-8]
+        if day > today and day not in valid:
+            os.remove(os.path.join(DATA, name))
+
 def generate_all(alerts):
     all_days = sorted(set().union(*[set(a["zile"]) for a in alerts])) if alerts else []
+    cleanup_stale_future_geojson(all_days)
     t = today_iso()
     cand = [d for d in all_days if d <= t]
     latest_day = (max(cand) if cand else (all_days[0] if all_days else None))
@@ -305,12 +500,17 @@ def generate_all(alerts):
         fc = build_daily_geojson(alerts, day)
         write_json(os.path.join(DATA, f"{day}.geojson"), fc)
         gen_feats = [f for f in fc["features"] if f["properties"]["source"] == "general"]
+        codes = sorted({f["properties"]["cod_culoare"] for f in gen_feats if f["properties"].get("cod_culoare", 0) > 0})
+        phenomena = sorted({f["properties"].get("fenomen_group") or phenomenon_group(f["properties"].get("fenomen_principal", "")) for f in gen_feats})
         index["dates"][day] = {
             "alert_count": fc["metadata"]["alert_count"],
             "feature_count": fc["metadata"]["feature_count"],
-            "max_color": max((f["properties"]["cod_culoare"] for f in gen_feats), default=0),
+            "max_color": fc["metadata"]["max_color"],
             "nowcasting_count": fc["metadata"]["nowcasting_count"],
             "has_nowcasting": fc["metadata"]["nowcasting_count"] > 0,
+            "file": f"{day}.geojson",
+            "codes": codes,
+            "phenomena": phenomena,
         }
     write_json(os.path.join(DATA, "index.json"), index)
 

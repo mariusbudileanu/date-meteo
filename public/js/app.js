@@ -64,6 +64,7 @@ let currentRecords = [];
 let currentIndexes = emptyIndexes();
 let alertsById = new Map();
 let featuresByCounty = new Map();
+let featuresByAlertId = new Map();
 let featuresByPhenomenon = new Map();
 let featuresBySeverity = new Map();
 let visibleAlertIds = new Set();
@@ -218,6 +219,7 @@ function sourceMatchesFeature(feature) {
 function syncIndexAliases() {
   alertsById = currentIndexes.alertsById;
   featuresByCounty = currentIndexes.featuresByCounty;
+  featuresByAlertId = currentIndexes.featuresByAlertId;
   featuresByPhenomenon = currentIndexes.featuresByPhenomenon;
   featuresBySeverity = currentIndexes.featuresBySeverity;
   currentIndexes.visibleAlertIds = visibleAlertIds;
@@ -240,10 +242,8 @@ function resetDashboardFilters() {
 function updateDashboard() {
   syncControlState();
   const visibleFeatures = getVisibleFeatures({ respectVisibleAlertIds: true });
-  const cardFeatures = getVisibleFeatures({ respectVisibleAlertIds: false });
-  const visibleRecords = recordsMatchingFeatures(visibleFeatures);
-  const cardRecords = recordsMatchingFeatures(cardFeatures);
-  const nowcastingFeatures = cardFeatures.filter(isNowcastingFeature);
+  const visibleRecords = getVisibleRecords({ respectVisibleAlertIds: true });
+  const cardRecords = getVisibleRecords({ respectVisibleAlertIds: false });
 
   renderDaySummary(visibleFeatures, selectedDate);
   renderStatus(visibleFeatures, selectedDate);
@@ -251,7 +251,7 @@ function updateDashboard() {
   renderVisibleAlertChips(visibleRecords);
   renderAlertsSummary(cardRecords);
   renderCompareSection(cardRecords);
-  renderNowcastingSection(nowcastingFeatures);
+  renderNowcastingSection(cardRecords.filter(isNowcastingRecord));
   updateLegendActiveState();
 
   if (selectedCountyKey) {
@@ -303,6 +303,7 @@ function publishDebugState(visibleFeatures, cardRecords) {
     indexCounts: {
       alertsById: alertsById.size,
       featuresByCounty: featuresByCounty.size,
+      featuresByAlertId: featuresByAlertId.size,
       featuresByPhenomenon: featuresByPhenomenon.size,
       featuresBySeverity: featuresBySeverity.size,
     },
@@ -400,6 +401,43 @@ function getVisibleFeatures({ respectVisibleAlertIds }) {
       .map((feature) => feature.properties?.county_key)
   );
   return filtered.filter((feature) => overlapCountyKeys.has(countyKey(feature)));
+}
+
+function getVisibleRecords({ respectVisibleAlertIds }) {
+  const filtered = currentRecords.filter((record) => {
+    const alertOk = !respectVisibleAlertIds || !record.alert_id || visibleAlertIds.has(record.alert_id);
+    return alertOk && sourceMatchesRecord(record) && phenomenonMatchesRecord(record) && severityMatchesRecord(record);
+  });
+  if (!showOnlyOverlaps) return filtered;
+
+  const overlapAlertIds = new Set();
+  for (const feature of aggregateFeaturesByCounty(getVisibleFeatures({ respectVisibleAlertIds }))) {
+    if (safeNumber(feature.properties?.alert_count, 0) <= 1) continue;
+    for (const item of feature.properties?.features || []) {
+      if (item.properties?.alert_id) overlapAlertIds.add(item.properties.alert_id);
+    }
+  }
+  return filtered.filter((record) => overlapAlertIds.has(record.alert_id));
+}
+
+function sourceMatchesRecord(record) {
+  const isNowcasting = isNowcastingRecord(record);
+  if (selectedSourceMode === "nowcasting") return isNowcasting;
+  if (selectedSourceMode === "all") return true;
+  if (nowcastingToggle?.checked) return true;
+  return !isNowcasting;
+}
+
+function phenomenonMatchesRecord(record) {
+  if (selectedPhenomenon === "all") return true;
+  if (record.features?.some((feature) => normalizePhenomenon(feature) === selectedPhenomenon)) return true;
+  return normalizePhenomenon(recordAsFeature(record)) === selectedPhenomenon;
+}
+
+function severityMatchesRecord(record) {
+  if (selectedSeverity === "all") return true;
+  if (record.features?.some((feature) => String(safeNumber(feature.properties?.cod_culoare, 0)) === selectedSeverity)) return true;
+  return String(safeNumber(record.cod_culoare_max, 0)) === selectedSeverity;
 }
 
 function renderDaySummary(features, dateLabel) {
@@ -635,9 +673,8 @@ function alertChipHtml(record) {
   `;
 }
 
-function renderNowcastingSection(features) {
+function renderNowcastingSection(records) {
   if (!nowcastingSection || !nowcastingSummaryElement) return;
-  const records = recordsMatchingFeatures(features).filter(isNowcastingRecord);
   const show = nowcastingEnabled();
   nowcastingSection.hidden = !show;
   if (!show) {
@@ -713,6 +750,7 @@ function alertCardHtml(record) {
   const message = DOMPurify.sanitize(record.text_alerta_html || "");
   const checked = visibleAlertIds.has(record.alert_id) ? "checked" : "";
   const phenomenon = recordPrimaryPhenomenon(record);
+  const geometryNote = record.features?.length ? "" : `<p class="geometry-note">Alertă activă în metadata, fără geometrii desenabile.</p>`;
   return `
     <article class="alert-card lvl-${max} ${isNowcastingRecord(record) ? "nowcasting-card" : ""}" data-alert-id="${escapeHtml(record.alert_id)}">
       <div class="alert-card-head">
@@ -730,6 +768,7 @@ function alertCardHtml(record) {
         <button type="button" class="mini-button alert-isolate" data-alert-id="${escapeHtml(record.alert_id)}">Izolează</button>
         <button type="button" class="mini-button alert-hide" data-alert-id="${escapeHtml(record.alert_id)}">Ascunde</button>
       </div>
+      ${geometryNote}
       <div class="alert-card-grid">
         <div><span class="field-label">Fenomen</span><strong>${escapeHtml(phenomenon)}</strong></div>
         <div><span class="field-label">Interval</span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</div>
@@ -776,11 +815,6 @@ function attachAlertCardEvents() {
       updateDashboard();
     });
   });
-}
-
-function recordsMatchingFeatures(features) {
-  const ids = new Set(features.map((feature) => feature.properties?.alert_id).filter(Boolean));
-  return currentRecords.filter((record) => ids.has(record.alert_id));
 }
 
 function normalizedActiveRecords(metadata, features) {
@@ -847,12 +881,15 @@ function buildIndexes(records, features) {
   for (const record of records) indexes.alertsById.set(record.alert_id, record);
   for (const feature of features) {
     const key = countyKey(feature);
+    const alertId = feature.properties?.alert_id || "";
     const phenomenon = normalizePhenomenon(feature);
     const severity = String(safeNumber(feature.properties?.cod_culoare, 0));
     if (!indexes.featuresByCounty.has(key)) indexes.featuresByCounty.set(key, []);
+    if (alertId && !indexes.featuresByAlertId.has(alertId)) indexes.featuresByAlertId.set(alertId, []);
     if (!indexes.featuresByPhenomenon.has(phenomenon)) indexes.featuresByPhenomenon.set(phenomenon, []);
     if (!indexes.featuresBySeverity.has(severity)) indexes.featuresBySeverity.set(severity, []);
     indexes.featuresByCounty.get(key).push(feature);
+    if (alertId) indexes.featuresByAlertId.get(alertId).push(feature);
     indexes.featuresByPhenomenon.get(phenomenon).push(feature);
     indexes.featuresBySeverity.get(severity).push(feature);
   }
@@ -864,6 +901,7 @@ function emptyIndexes() {
   return {
     alertsById: new Map(),
     featuresByCounty: new Map(),
+    featuresByAlertId: new Map(),
     featuresByPhenomenon: new Map(),
     featuresBySeverity: new Map(),
     visibleAlertIds: new Set(),
@@ -1182,6 +1220,17 @@ function normalizePhenomenon(feature) {
 function featureText(feature) {
   const props = feature.properties || {};
   return props.fenomen_principal || props.fenomene_vizate || props.mesaj_plain || props.mesaj || PHENOMENON_FALLBACK;
+}
+
+function recordAsFeature(record) {
+  return {
+    properties: {
+      source: record.source,
+      cod_culoare: record.cod_culoare_max,
+      fenomen_principal: recordPrimaryPhenomenon(record),
+      alert_id: record.alert_id,
+    },
+  };
 }
 
 function activePhenomenaLabels(features) {

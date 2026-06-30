@@ -6,6 +6,8 @@ __pycache__/
 .idea/
 .vscode/
 debug_anm_*.xml
+debug_anm/
+DEBUG_METEOALERTRO_*.md
 files.zip
 meteoalert_debug.zip
 _incoming_files/
