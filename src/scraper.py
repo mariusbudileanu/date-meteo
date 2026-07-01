@@ -29,7 +29,7 @@ ENDPOINTS = {
 PUBLIC = os.environ.get("METEO_OUT", "public")  # seteaza "." daca Pages serveste din radacina
 DATA    = os.path.join(PUBLIC, "data")
 ISTORIC = os.path.join(PUBLIC, "istoric")
-GEODATA = os.path.join(PUBLIC, "geodata")
+GEODATA = os.environ.get("METEO_GEODATA", os.path.join("src", "geodata"))
 MANUAL_NOWCASTING = os.path.join("manual_nowcasting")
 MANUAL_NOWCASTING_CSV = os.path.join(MANUAL_NOWCASTING, "nowcasting_manual_import.csv")
 
@@ -70,6 +70,29 @@ def _norm(s):
 COUNTY_NAME_TO_CODE = {_norm(name): code for code, name in JUDETE.items()}
 COUNTY_NAME_TO_CODE.update({"BUCURESTI": "B", "MUNICIPIUL BUCURESTI": "B"})
 NOWCASTING_SOURCES = {"nowcasting", "nowcasting_manual"}
+GEODATA_STATS = {
+    "county_path": "",
+    "county_count": 0,
+    "county_crs": "",
+    "county_transformed": False,
+    "county_schema": {},
+    "uat_path": "",
+    "uat_count": 0,
+    "uat_crs": "",
+    "uat_transformed": False,
+    "uat_schema": {},
+}
+GEODATA_FEATURE_CACHE = {}
+NOWCASTING_RUNTIME_STATS = {
+    "live_alerts": 0,
+    "manual_imported": 0,
+    "archived_preserved": 0,
+    "with_coord_gis": 0,
+    "uat_fallback": 0,
+    "county_fallback": 0,
+    "without_geometry": 0,
+    "_archived_preserved_keys": set(),
+}
 
 def month_number(name):
     return {_norm(k): v for k, v in LUNI.items()}.get(_norm(name or ""))
@@ -191,31 +214,221 @@ def wkt_to_geojson_geometry(wkt):
 
 def load_geojson_file(path):
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)
         return data.get("features", [])
     except (OSError, json.JSONDecodeError):
         return []
 
-def county_geodata_features():
-    paths = [
-        os.path.join(GEODATA, "romania_judete.geojson"),
-        os.path.join(DATA, "judete.geojson"),
+def iter_geojson_coords(geometry):
+    if not geometry:
+        return
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if gtype == "GeometryCollection":
+        for item in geometry.get("geometries", []):
+            yield from iter_geojson_coords(item)
+        return
+    if coords is None:
+        return
+    stack = [coords]
+    while stack:
+        item = stack.pop()
+        if not item:
+            continue
+        if isinstance(item[0], (int, float)) and len(item) >= 2:
+            yield float(item[0]), float(item[1])
+        else:
+            stack.extend(item)
+
+def geojson_bounds(features):
+    minx = miny = float("inf")
+    maxx = maxy = float("-inf")
+    found = False
+    for feature in features:
+        for x, y in iter_geojson_coords(feature.get("geometry")):
+            found = True
+            minx = min(minx, x); miny = min(miny, y)
+            maxx = max(maxx, x); maxy = max(maxy, y)
+    if not found:
+        return None
+    return minx, miny, maxx, maxy
+
+def detect_geojson_crs_from_bounds(bounds):
+    if not bounds:
+        return "EPSG:4326"
+    minx, miny, maxx, maxy = bounds
+    if max(abs(minx), abs(maxx)) > 180 or max(abs(miny), abs(maxy)) > 90:
+        return "EPSG:3857"
+    return "EPSG:4326"
+
+def transform_geometry_3857_to_4326(geometry):
+    if not geometry:
+        return geometry
+    try:
+        from pyproj import Transformer
+        from shapely.geometry import mapping, shape
+        from shapely.ops import transform
+        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        return mapping(transform(transformer.transform, shape(geometry)))
+    except Exception:
+        def transform_coords(value):
+            if not value:
+                return value
+            if isinstance(value[0], (int, float)) and len(value) >= 2:
+                lon, lat = merc_to_wgs(float(value[0]), float(value[1]))
+                return [lon, lat] + list(value[2:])
+            return [transform_coords(item) for item in value]
+        out = dict(geometry)
+        if out.get("type") == "GeometryCollection":
+            out["geometries"] = [transform_geometry_3857_to_4326(g) for g in out.get("geometries", [])]
+        elif "coordinates" in out:
+            out["coordinates"] = transform_coords(out["coordinates"])
+        return out
+
+def prepare_geodata_features(path, features):
+    bounds = geojson_bounds(features)
+    detected = detect_geojson_crs_from_bounds(bounds)
+    transformed = detected == "EPSG:3857"
+    if transformed:
+        prepared = []
+        for feature in features:
+            item = dict(feature)
+            item["properties"] = dict(feature.get("properties") or {})
+            item["geometry"] = transform_geometry_3857_to_4326(feature.get("geometry"))
+            prepared.append(item)
+        return prepared, detected, True
+    return features, detected, False
+
+def geodata_candidate_paths(kind):
+    if kind == "county":
+        return [
+            os.path.join(GEODATA, "romania_judete.geojson"),
+            os.path.join(GEODATA, "ro_judete_poligon_simplify.geojson"),
+            os.path.join(PUBLIC, "geodata", "romania_judete.geojson"),
+            os.path.join(DATA, "judete.geojson"),
+        ]
+    return [
+        os.path.join(GEODATA, "romania_uat.geojson"),
+        os.path.join(GEODATA, "ro_uat_poligon_simplify.geojson"),
+        os.path.join(PUBLIC, "geodata", "romania_uat.geojson"),
     ]
-    for path in paths:
+
+def load_first_geojson(kind):
+    for path in geodata_candidate_paths(kind):
+        cache_key = os.path.abspath(path)
+        if cache_key in GEODATA_FEATURE_CACHE:
+            prepared, detected, transformed = GEODATA_FEATURE_CACHE[cache_key]
+            return path, prepared, detected, transformed
         features = load_geojson_file(path)
         if features:
-            if os.path.basename(path) != "romania_judete.geojson":
-                print("[nowcasting] Nu exista public/geodata/romania_judete.geojson; folosesc public/data/judete.geojson pentru fallback.", file=sys.stderr)
-            return features
-    print("[nowcasting] Nu exista geodata locala pentru fallback nowcasting.", file=sys.stderr)
-    return []
+            prepared, detected, transformed = prepare_geodata_features(path, features)
+            GEODATA_FEATURE_CACHE[cache_key] = (prepared, detected, transformed)
+            return path, prepared, detected, transformed
+    return "", [], "", False
+
+def validator_county_code(value):
+    return 10 if str(value or "").strip().upper() in JUDETE else 0
+
+def validator_county_name(value):
+    return 8 if county_code_for_name(value) else 0
+
+def validator_siruta(value):
+    text = str(value or "").strip()
+    return 5 if text.isdigit() and len(text) >= 4 else 0
+
+def detect_property_field(features, aliases, validator=None, sample_size=250):
+    normalized_aliases = [normalize_ro_name(alias) for alias in aliases]
+    scores = defaultdict(int)
+    for feature in features[:sample_size]:
+        props = feature.get("properties") or {}
+        for key, value in props.items():
+            if value in (None, ""):
+                continue
+            normalized_key = normalize_ro_name(key)
+            alias_score = 0
+            for index, alias in enumerate(normalized_aliases):
+                if normalized_key == alias:
+                    alias_score = max(alias_score, 30 - index)
+                elif alias and alias in normalized_key:
+                    alias_score = max(alias_score, 12 - min(index, 10))
+            value_score = validator(value) if validator else 1
+            if validator and value_score <= 0:
+                continue
+            if alias_score or value_score > 1:
+                scores[key] += alias_score + value_score
+    if not scores:
+        return ""
+    return max(scores.items(), key=lambda item: item[1])[0]
+
+def detect_county_schema(features):
+    return {
+        "county_name": detect_property_field(
+            features,
+            ["judet_nume", "county_name", "name", "judet", "county", "nume"],
+            validator_county_name,
+        ),
+        "county_code": detect_property_field(
+            features,
+            ["judet_cod", "cod_judet", "county_code", "countyMn", "mnemonic", "code", "cod"],
+            validator_county_code,
+        ),
+    }
+
+def detect_uat_schema(features):
+    return {
+        "uat_name": detect_property_field(
+            features,
+            ["uat_name", "localitate", "name", "nume", "uat", "denumire"],
+        ),
+        "uat_county": detect_property_field(
+            features,
+            ["judet_cod", "cod_judet", "countyMn", "county_name", "county", "judet", "mnemonic"],
+            lambda value: validator_county_code(value) or validator_county_name(value),
+        ),
+        "siruta": detect_property_field(
+            features,
+            ["siruta", "cod_siruta", "siruta_code", "natcode", "nat_code", "sirsup"],
+            validator_siruta,
+        ),
+    }
+
+def schema_value(props, field):
+    if not field:
+        return ""
+    value = props.get(field)
+    return "" if value in (None, "") else str(value)
+
+def county_geodata_features():
+    path, features, detected_crs, transformed = load_first_geojson("county")
+    if features and GEODATA_STATS["county_path"] != path:
+        GEODATA_STATS["county_path"] = path
+        GEODATA_STATS["county_count"] = len(features)
+        GEODATA_STATS["county_crs"] = detected_crs
+        GEODATA_STATS["county_transformed"] = transformed
+        GEODATA_STATS["county_schema"] = detect_county_schema(features)
+    if not features:
+        GEODATA_STATS["county_path"] = ""
+        GEODATA_STATS["county_count"] = 0
+        GEODATA_STATS["county_crs"] = ""
+        GEODATA_STATS["county_transformed"] = False
+        GEODATA_STATS["county_schema"] = {}
+    return features
 
 def uat_geodata_features():
-    path = os.path.join(GEODATA, "romania_uat.geojson")
-    features = load_geojson_file(path)
+    path, features, detected_crs, transformed = load_first_geojson("uat")
+    if features and GEODATA_STATS["uat_path"] != path:
+        GEODATA_STATS["uat_path"] = path
+        GEODATA_STATS["uat_count"] = len(features)
+        GEODATA_STATS["uat_crs"] = detected_crs
+        GEODATA_STATS["uat_transformed"] = transformed
+        GEODATA_STATS["uat_schema"] = detect_uat_schema(features)
     if not features:
-        print("[nowcasting] Nu exista public/geodata/romania_uat.geojson; UAT fallback indisponibil.", file=sys.stderr)
+        GEODATA_STATS["uat_path"] = ""
+        GEODATA_STATS["uat_count"] = 0
+        GEODATA_STATS["uat_crs"] = ""
+        GEODATA_STATS["uat_transformed"] = False
+        GEODATA_STATS["uat_schema"] = {}
     return features
 
 def feature_property(props, aliases):
@@ -228,12 +441,12 @@ def feature_property(props, aliases):
 
 def county_geometry_index():
     out = {}
-    name_aliases = ["judet", "Judet", "JUDET", "county", "county_name", "name", "NAME", "mnemonic", "siruta", "judet_nume"]
-    code_aliases = ["cod", "COD", "cod_judet", "county_code", "mnemonic", "judet_cod"]
-    for feature in county_geodata_features():
+    features = county_geodata_features()
+    schema = GEODATA_STATS.get("county_schema") or detect_county_schema(features)
+    for feature in features:
         props = feature.get("properties") or {}
-        code = feature_property(props, code_aliases).upper()
-        name = feature_property(props, name_aliases)
+        code = schema_value(props, schema.get("county_code")).upper()
+        name = schema_value(props, schema.get("county_name"))
         if code and code in JUDETE:
             out[code] = feature.get("geometry")
         if name:
@@ -244,16 +457,28 @@ def county_geometry_index():
 
 def uat_geometry_index():
     out = {}
-    name_aliases = ["uat_name", "nume", "Nume", "name", "NAME", "localitate", "uat", "siruta"]
-    county_aliases = ["county_name", "judet", "county", "cod_judet", "judet_cod"]
-    for feature in uat_geodata_features():
+    bucharest_sector_geometries = []
+    features = uat_geodata_features()
+    schema = GEODATA_STATS.get("uat_schema") or detect_uat_schema(features)
+    for feature in features:
         props = feature.get("properties") or {}
-        name = feature_property(props, name_aliases)
-        county = feature_property(props, county_aliases)
+        name = schema_value(props, schema.get("uat_name"))
+        county = schema_value(props, schema.get("uat_county"))
         county_code = county_code_for_name(county)
         if not name or not county_code or not feature.get("geometry"):
             continue
-        out[(county_code, normalize_ro_name(name))] = feature.get("geometry")
+        normalized_name = normalize_ro_name(name)
+        out[(county_code, normalized_name)] = feature.get("geometry")
+        if county_code == "B" and normalized_name.startswith("BUCURESTI SECTOR"):
+            bucharest_sector_geometries.append(feature.get("geometry"))
+        siruta = schema_value(props, schema.get("siruta"))
+        if siruta:
+            out[(county_code, normalize_ro_name(siruta))] = feature.get("geometry")
+    if bucharest_sector_geometries:
+        bucharest_geometry = multipolygon_from_geometries(bucharest_sector_geometries)
+        if bucharest_geometry:
+            out[("B", "BUCURESTI")] = bucharest_geometry
+            out[("B", "MUNICIPIUL BUCURESTI")] = bucharest_geometry
     return out
 
 def multipolygon_from_geometries(geometries):
@@ -861,6 +1086,9 @@ def _all_features(alerts_subset, day):
                     "interval_valabilitate_text": interval_text,
                     "interval_end": fe.isoformat(), "data_expirare": fe.isoformat(),
                     "mesaj_plain": al.get("mesaj_plain", ""),
+                    "source_url": al.get("source_url", ""),
+                    "source_label": al.get("source_label", ""),
+                    "notes": al.get("notes", ""),
                     "durata_ore": round((fe - fs).total_seconds() / 3600, 1), "zi": day,
                 },
             })
@@ -946,6 +1174,8 @@ def refresh_geojson_metadata(fc, day):
     nowcast_feats = [f for f in feats if is_nowcasting_source(f.get("properties", {}).get("source"))]
     alerts_by_county, max_by_county = _county_metadata(feats)
     sources = sorted({r.get("source") for r in cards if r.get("source")} | {f.get("properties", {}).get("source") for f in feats if f.get("properties", {}).get("source")})
+    has_nowcasting = bool(nowcast_cards or nowcast_feats)
+    has_manual_nowcasting = bool(manual_cards)
     fc.setdefault("metadata", {})
     fc["metadata"].update({
         "date": day,
@@ -959,8 +1189,9 @@ def refresh_geojson_metadata(fc, day):
         "max_color": max((safe_int(f.get("properties", {}).get("cod_culoare"), 0) for f in feats), default=0),
         "general_max_color": max((safe_int(f.get("properties", {}).get("cod_culoare"), 0) for f in general_feats), default=0),
         "nowcasting_count": len({r.get("alert_id") for r in nowcast_cards if r.get("alert_id")}),
-        "has_nowcasting": bool(nowcast_cards or nowcast_feats),
-        "has_manual_nowcasting": bool(manual_cards),
+        "has_nowcasting": has_nowcasting,
+        "has_manual_nowcasting": has_manual_nowcasting,
+        "calendar_badge": "NC*" if has_manual_nowcasting else "NC" if has_nowcasting else "",
         "sources": sources,
         "alerts_by_county": alerts_by_county,
         "max_by_county": max_by_county,
@@ -1000,6 +1231,8 @@ def index_entry_from_geojson(day, fc):
     max_color = meta.get("max_color")
     if max_color is None:
         max_color = max(codes, default=0)
+    has_nowcasting = bool(meta.get("has_nowcasting", nowcast_records or nowcast_feats))
+    has_manual_nowcasting = bool(meta.get("has_manual_nowcasting", manual_records))
     return {
         "date": day,
         "general_alert_count": meta.get("general_alert_count", len({r.get("alert_id") for r in general_records if r.get("alert_id")})),
@@ -1013,8 +1246,9 @@ def index_entry_from_geojson(day, fc):
         "max_code": max_color,
         "general_max_color": meta.get("general_max_color", max((safe_int(f.get("properties", {}).get("cod_culoare"), 0) for f in general_feats), default=0)),
         "nowcasting_count": meta.get("nowcasting_count", len({r.get("alert_id") for r in nowcast_records if r.get("alert_id")})),
-        "has_nowcasting": bool(meta.get("has_nowcasting", nowcast_records or nowcast_feats)),
-        "has_manual_nowcasting": bool(meta.get("has_manual_nowcasting", manual_records)),
+        "has_nowcasting": has_nowcasting,
+        "has_manual_nowcasting": has_manual_nowcasting,
+        "calendar_badge": "NC*" if has_manual_nowcasting else "NC" if has_nowcasting else "",
         "sources": sources,
         "has_geojson": True,
         "has_archive": False,
@@ -1244,6 +1478,13 @@ def merge_persistent_nowcasting(day, fc):
         r for r in old_fc.get("metadata", {}).get("active_alerts", [])
         if should_preserve_record(r) and record_key(r) not in new_record_ids
     ]
+    for record in old_records:
+        if not is_nowcasting_source(record.get("source")):
+            continue
+        preserve_key = f"{day}|{record_key(record)}"
+        if preserve_key not in NOWCASTING_RUNTIME_STATS["_archived_preserved_keys"]:
+            NOWCASTING_RUNTIME_STATS["_archived_preserved_keys"].add(preserve_key)
+            NOWCASTING_RUNTIME_STATS["archived_preserved"] += 1
     if old_records:
         fc.setdefault("metadata", {}).setdefault("active_alerts", []).extend(old_records)
 
@@ -1367,7 +1608,7 @@ def rebuild_nowcasting_archive():
             key = "|".join([row.get("alert_id", ""), row.get("county_name", ""), row.get("zone_name", ""), row.get("valid_from", "")])
             unique[key] = row
         with open(path, "w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=NOWCASTING_CSV_FIELDS)
+            writer = csv.DictWriter(f, fieldnames=NOWCASTING_CSV_FIELDS, lineterminator="\n")
             writer.writeheader()
             for row in sorted(unique.values(), key=lambda r: (r["valid_from"], r["county_name"], r["zone_name"])):
                 writer.writerow({k: row.get(k, "") for k in NOWCASTING_CSV_FIELDS})
@@ -1508,6 +1749,82 @@ def rebuild_istoric_manifest():
     with open(os.path.join(ISTORIC, "README.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
+def reset_nowcasting_runtime_stats():
+    for key in ("live_alerts", "manual_imported", "archived_preserved", "with_coord_gis", "uat_fallback", "county_fallback", "without_geometry"):
+        NOWCASTING_RUNTIME_STATS[key] = 0
+    NOWCASTING_RUNTIME_STATS["_archived_preserved_keys"].clear()
+
+def update_nowcasting_geometry_stats(alerts):
+    counts = {
+        "with_coord_gis": 0,
+        "uat_fallback": 0,
+        "county_fallback": 0,
+        "without_geometry": 0,
+    }
+    for alert in alerts:
+        if not is_nowcasting_source(alert.get("source")):
+            continue
+        geometry_sources = {
+            (meta or {}).get("geometry_source")
+            for meta in (alert.get("feature_meta") or {}).values()
+            if meta
+        }
+        if alert.get("coord_gis_count", 0) > 0 or "coordGis" in geometry_sources:
+            counts["with_coord_gis"] += 1
+        elif "uat_match" in geometry_sources:
+            counts["uat_fallback"] += 1
+        elif "county_fallback" in geometry_sources:
+            counts["county_fallback"] += 1
+        else:
+            counts["without_geometry"] += 1
+    NOWCASTING_RUNTIME_STATS.update(counts)
+
+def log_geodata_status():
+    county_geodata_features()
+    uat_geodata_features()
+    county_schema = GEODATA_STATS.get("county_schema") or {}
+    uat_schema = GEODATA_STATS.get("uat_schema") or {}
+    county_crs = GEODATA_STATS.get("county_crs") or "-"
+    uat_crs = GEODATA_STATS.get("uat_crs") or "-"
+    print(
+        "[geodata] "
+        f"judete_path={GEODATA_STATS.get('county_path') or '-'} "
+        f"judete={GEODATA_STATS.get('county_count', 0)} "
+        f"schema_judet_nume={county_schema.get('county_name') or '-'} "
+        f"schema_judet_cod={county_schema.get('county_code') or '-'}"
+    )
+    print(
+        "[geodata] "
+        f"judete_crs_detected={county_crs} "
+        f"transformed_to={'EPSG:4326' if GEODATA_STATS.get('county_transformed') else county_crs}"
+    )
+    print(
+        "[geodata] "
+        f"uat_path={GEODATA_STATS.get('uat_path') or '-'} "
+        f"uat={GEODATA_STATS.get('uat_count', 0)} "
+        f"schema_uat_nume={uat_schema.get('uat_name') or '-'} "
+        f"schema_uat_judet={uat_schema.get('uat_county') or '-'} "
+        f"schema_siruta={uat_schema.get('siruta') or '-'}"
+    )
+    print(
+        "[geodata] "
+        f"uat_crs_detected={uat_crs} "
+        f"transformed_to={'EPSG:4326' if GEODATA_STATS.get('uat_transformed') else uat_crs}"
+    )
+
+def log_nowcasting_runtime_stats():
+    print(
+        "[nowcasting] "
+        f"workflow_frequency=15min cron='*/15 * * * *' "
+        f"live={NOWCASTING_RUNTIME_STATS['live_alerts']} "
+        f"manual_imported={NOWCASTING_RUNTIME_STATS['manual_imported']} "
+        f"archived_preserved={NOWCASTING_RUNTIME_STATS['archived_preserved']} "
+        f"coordGis={NOWCASTING_RUNTIME_STATS['with_coord_gis']} "
+        f"uat_fallback={NOWCASTING_RUNTIME_STATS['uat_fallback']} "
+        f"county_fallback={NOWCASTING_RUNTIME_STATS['county_fallback']} "
+        f"without_geometry={NOWCASTING_RUNTIME_STATS['without_geometry']}"
+    )
+
 # ------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser()
@@ -1516,10 +1833,15 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(DATA, exist_ok=True); os.makedirs(ISTORIC, exist_ok=True)
+    reset_nowcasting_runtime_stats()
+    print("[workflow] frequency=15min cron='*/15 * * * *'")
+    log_geodata_status()
     alerts = []
     if args.local:
         with open(args.local, "rb") as f:
             alerts += parse_avertizari(f.read(), args.source)
+        if is_nowcasting_source(args.source):
+            NOWCASTING_RUNTIME_STATS["live_alerts"] = len(alerts)
         print(f"[local:{args.source}] {args.local}: {len(alerts)} avertizari")
     else:
         for source, url in ENDPOINTS.items():
@@ -1529,6 +1851,7 @@ def main():
                 got = parse_avertizari(xml_bytes, source)
                 alerts += got
                 if source == "nowcasting":
+                    NOWCASTING_RUNTIME_STATS["live_alerts"] = len(got)
                     feature_count = sum(len(a.get("geom", {})) for a in got)
                     fallback_count = sum(a.get("fallback_geometry_count", 0) for a in got)
                     print(
@@ -1541,13 +1864,19 @@ def main():
             except Exception as ex:
                 print(f"[{source}] EROARE: {ex}", file=sys.stderr)
 
-    alerts += load_manual_nowcasting_alerts()
+    manual_alerts = load_manual_nowcasting_alerts()
+    NOWCASTING_RUNTIME_STATS["manual_imported"] = sum(
+        1 for alert in manual_alerts if is_nowcasting_source(alert.get("source"))
+    )
+    alerts += manual_alerts
+    update_nowcasting_geometry_stats(alerts)
 
     fetch_and_save_current_weather()
 
     if alerts:
         upsert_archive(alerts)
     index, latest = generate_all(alerts)
+    log_nowcasting_runtime_stats()
     print(f"Zile generate: {list(index['dates'].keys())}")
     print(f"latest.geojson -> {latest}")
 

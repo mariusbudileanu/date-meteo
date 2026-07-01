@@ -1281,11 +1281,14 @@ function renderCountyHistory(countyCode) {
   const total = safeNumber(county.alert_count, 0);
   countyHistoryElement.classList.remove("empty-state");
   countyHistoryElement.innerHTML = `
-    <div class="history-stat">
-      <span>${escapeHtml(county.judet_nume || county.judet_cod)}</span>
+    <div class="history-selected-header">
+      <div>
+        <span class="history-selected-eyebrow">Județ selectat</span>
+        <h3 class="history-selected-title">${escapeHtml(county.judet_nume || county.judet_cod)}</h3>
+      </div>
       ${codeChip(county.max_color)}
     </div>
-    <div class="history-grid">
+    <div class="history-stats-grid">
       <div><span class="field-label">Total avertizări arhivate</span><strong>${escapeHtml(total)}</strong></div>
       <div><span class="field-label">Cod galben</span><strong>${escapeHtml(safeNumber(counts["1"], 0))}</strong></div>
       <div><span class="field-label">Cod portocaliu</span><strong>${escapeHtml(safeNumber(counts["2"], 0))}</strong></div>

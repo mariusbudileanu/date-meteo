@@ -30,6 +30,33 @@ def square(lon, lat, d=0.2):
     pts = [fwd(lon, lat), fwd(lon+d, lat), fwd(lon+d, lat+d), fwd(lon, lat+d), fwd(lon, lat)]
     return "MULTIPOLYGON (((" + ", ".join(pts) + ")))"
 
+def merc_point(lon, lat):
+    x, y = fwd(lon, lat).split()
+    return [float(x), float(y)]
+
+def mercator_polygon(lon, lat, d=0.05):
+    return {
+        "type": "Polygon",
+        "coordinates": [[
+            merc_point(lon, lat),
+            merc_point(lon + d, lat),
+            merc_point(lon + d, lat + d),
+            merc_point(lon, lat + d),
+            merc_point(lon, lat),
+        ]],
+    }
+
+def geojson_points(geometry):
+    stack = [geometry.get("coordinates", [])]
+    while stack:
+        item = stack.pop()
+        if not item:
+            continue
+        if isinstance(item[0], (int, float)) and len(item) >= 2:
+            yield item
+        else:
+            stack.extend(item)
+
 def avertizare(interval, ap, exp, judete, mesaj=""):
     js = "".join(f'<judet cod="{c}" culoare="{col}" useCoordGis="true" coordGis="{square(lo,la)}"/>'
                  for c,col,lo,la in judete)
@@ -257,6 +284,57 @@ def test_archive_only_date_in_index():
         assert entry["file"] is None
         assert entry["alert_count"] >= 1
     print("ok archive_only_date_in_index")
+
+def test_nowcasting_uat_fallback_schema_detection():
+    with isolated_output():
+        os.makedirs(S.GEODATA, exist_ok=True)
+        county_geom = {"type": "Polygon", "coordinates": [[[26.0, 44.3], [26.2, 44.3], [26.2, 44.5], [26.0, 44.5], [26.0, 44.3]]]}
+        uat_geom = {"type": "Polygon", "coordinates": [[[26.05, 44.35], [26.1, 44.35], [26.1, 44.4], [26.05, 44.4], [26.05, 44.35]]]}
+        with open(os.path.join(S.GEODATA, "romania_judete.geojson"), "w", encoding="utf-8") as f:
+            json.dump({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {"name": "București", "mnemonic": "B"}, "geometry": county_geom}],
+            }, f)
+        with open(os.path.join(S.GEODATA, "romania_uat.geojson"), "w", encoding="utf-8") as f:
+            json.dump({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {"name": "București", "countyMn": "B", "natcode": "179132"}, "geometry": uat_geom}],
+            }, f)
+        geom, source, confidence = S.fallback_geometry_for_nowcasting("B", ["Bucuresti"])
+        assert geom and source == "uat_match" and confidence == "high"
+        S.county_geodata_features()
+        assert S.GEODATA_STATS["county_schema"]["county_name"] == "name"
+        assert S.GEODATA_STATS["county_schema"]["county_code"] == "mnemonic"
+        assert S.GEODATA_STATS["uat_schema"]["uat_name"] == "name"
+        assert S.GEODATA_STATS["uat_schema"]["uat_county"] == "countyMn"
+        assert S.GEODATA_STATS["uat_schema"]["siruta"] == "natcode"
+        geom2, source2, _ = S.fallback_geometry_for_nowcasting("B", ["Localitate lipsa"])
+        assert geom2 and source2 == "county_fallback"
+    print("ok nowcasting_uat_fallback_schema_detection")
+
+def test_nowcasting_uat_fallback_crs_transform():
+    with isolated_output():
+        os.makedirs(S.GEODATA, exist_ok=True)
+        with open(os.path.join(S.GEODATA, "romania_judete.geojson"), "w", encoding="utf-8") as f:
+            json.dump({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {"name": "Bucuresti", "mnemonic": "B"}, "geometry": mercator_polygon(26.0, 44.4)}],
+            }, f)
+        with open(os.path.join(S.GEODATA, "romania_uat.geojson"), "w", encoding="utf-8") as f:
+            json.dump({
+                "type": "FeatureCollection",
+                "features": [{"type": "Feature", "properties": {"name": "Bucuresti", "countyMn": "B", "natcode": "179132"}, "geometry": mercator_polygon(26.05, 44.43)}],
+            }, f)
+        geom, source, confidence = S.fallback_geometry_for_nowcasting("B", ["Bucuresti"])
+        assert source == "uat_match" and confidence == "high"
+        assert S.GEODATA_STATS["uat_crs"] == "EPSG:3857"
+        assert S.GEODATA_STATS["uat_transformed"] is True
+        points = list(geojson_points(geom))
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        assert 20 <= min(xs) <= max(xs) <= 30
+        assert 43 <= min(ys) <= max(ys) <= 49
+    print("ok nowcasting_uat_fallback_crs_transform")
 
 if __name__ == "__main__":
     fns = [v for k,v in sorted(globals().items()) if k.startswith("test_")]

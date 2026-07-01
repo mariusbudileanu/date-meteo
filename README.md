@@ -60,6 +60,6 @@ Frontend-ul foloseste HTML, CSS si JavaScript simplu, Leaflet pentru harta si DO
 
 ## GitHub Pages
 
-Workflow-ul `.github/workflows/scrape-anm.yml` ruleaza la fiecare 15 minute si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite modificarile din `public/data/` si `public/istoric/`, apoi publica folderul `public/` prin GitHub Pages.
+Workflow-ul `.github/workflows/scrape-anm.yml` ruleaza la fiecare 15 minute (`*/15 * * * *`) si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite modificarile din `public/data/` si `public/istoric/`, apoi publica folderul `public/` prin GitHub Pages.
 
 Daca Pages nu se activeaza automat, mergi in GitHub la `Settings` -> `Pages` si seteaza `Source` la `GitHub Actions`.
