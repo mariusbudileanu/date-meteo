@@ -2965,8 +2965,11 @@ input {
   width: 100%;
   display: grid;
   grid-template-columns:
-    minmax(150px, 1.15fr)
-    repeat(4, minmax(110px, 0.85fr));
+    minmax(170px, 1.25fr)
+    minmax(130px, 0.85fr)
+    minmax(130px, 0.85fr)
+    minmax(180px, 1.05fr)
+    minmax(130px, 0.85fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -2978,6 +2981,10 @@ input {
   background: rgba(15, 23, 42, 0.42);
   border: 1px solid rgba(148, 163, 184, 0.14);
   overflow: hidden;
+}
+
+.summary-item--max-code {
+  min-width: 180px;
 }
 
 .summary-label {
@@ -2995,6 +3002,13 @@ input {
   font-weight: 800;
   color: #f8fafc;
   overflow-wrap: anywhere;
+}
+
+.summary-item--max-code .summary-value {
+  white-space: nowrap;
+  font-size: clamp(1.15rem, 1.45vw, 1.75rem);
+  line-height: 1;
+  overflow-wrap: normal;
 }
 
 .summary-value.is-severity-red {
@@ -3215,9 +3229,16 @@ input {
   #day-summary.map-summary-grid,
   .map-summary-grid {
     grid-template-columns:
-      minmax(120px, 1.1fr)
-      repeat(4, minmax(84px, 0.9fr));
+      minmax(120px, 1fr)
+      minmax(88px, 0.8fr)
+      minmax(88px, 0.8fr)
+      minmax(142px, 1fr)
+      minmax(88px, 0.8fr);
     gap: 8px;
+  }
+
+  .summary-item--max-code {
+    min-width: 142px;
   }
 
   .summary-item {
@@ -3326,4 +3347,35 @@ input {
   .county-fast-facts .detail-row {
     grid-template-columns: 1fr;
   }
+}
+
+.nc-badge {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 1px 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(45, 212, 191, 0.66);
+  background: rgba(15, 23, 42, 0.82);
+  color: #ccfbf1;
+  font-size: 0.55rem;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.cal-cell.has-manual-nowcasting {
+  outline: 2px dotted rgba(251, 191, 36, 0.72);
+  outline-offset: -4px;
+}
+
+.nc-badge.manual {
+  border-color: rgba(251, 191, 36, 0.78);
+  color: #fde68a;
+}
+
+.source-badge.manual {
+  border-color: rgba(251, 191, 36, 0.54);
+  color: #fde68a;
 }

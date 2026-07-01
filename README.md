@@ -37,11 +37,13 @@ Pentru fiecare zi, scraperul rezolva o singura geometrie pe judet/zona prin seve
 Arhiva descarcabila se scrie in `public/istoric/`:
 
 - `istoric/YYYY/YYYY-MM.csv`
+- `istoric/nowcasting/YYYY-MM.csv`
 - `istoric/index.json`
 - `istoric/toate-alertele.csv`
 - `istoric/README.md`
 
 CSV-urile lunare folosesc UTF-8-SIG pentru compatibilitate cu Excel si sunt actualizate idempotent pe `alert_id` stabil.
+Nowcasting-ul istoric este pastrat separat in `istoric/nowcasting/`, iar importurile manuale controlate pot fi puse in `manual_nowcasting/nowcasting_manual_import.csv`. Daca XML-ul live nowcasting nu contine `coordGis`, scraperul nu inventeaza zone: foloseste doar importuri manuale documentate sau fallback de judet/UAT cand exista o localizare verificabila.
 
 ## Frontend
 
@@ -58,6 +60,6 @@ Frontend-ul foloseste HTML, CSS si JavaScript simplu, Leaflet pentru harta si DO
 
 ## GitHub Pages
 
-Workflow-ul `.github/workflows/scrape_and_deploy.yml` ruleaza de 4 ori pe zi si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite modificarile din `public/data/` si `public/istoric/`, apoi publica folderul `public/` prin GitHub Pages.
+Workflow-ul `.github/workflows/scrape-anm.yml` ruleaza la fiecare 15 minute si poate fi pornit manual din GitHub Actions. El instaleaza Python, instaleaza dependintele, ruleaza `python src/scraper.py`, comite modificarile din `public/data/` si `public/istoric/`, apoi publica folderul `public/` prin GitHub Pages.
 
 Daca Pages nu se activeaza automat, mergi in GitHub la `Settings` -> `Pages` si seteaza `Source` la `GitHub Actions`.

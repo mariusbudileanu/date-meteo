@@ -594,7 +594,7 @@ function renderDaySummary(features, dateLabel) {
       <span class="summary-label">Zone afectate</span>
       <div class="summary-value">${zoneCount}</div>
     </div>
-    <div class="summary-item">
+    <div class="summary-item summary-item--max-code">
       <span class="summary-label">Cod maxim</span>
       <div class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
     </div>
@@ -622,7 +622,7 @@ function renderMap(features) {
     return;
   }
 
-  const aggregateFeatures = aggregateFeaturesByCounty(features);
+  const aggregateFeatures = aggregateFeaturesByCounty(features).sort((a, b) => aggregateZIndexScore(a) - aggregateZIndexScore(b));
   alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, {
     style: aggregateStyle,
     onEachFeature: onEachAggregateFeature,
@@ -633,6 +633,11 @@ function renderMap(features) {
     map.invalidateSize(true);
     refitMapToCurrentLayer();
   }, 500);
+}
+
+function aggregateZIndexScore(feature) {
+  const props = feature.properties || {};
+  return (props.has_nowcasting ? 2 : 0) + (props.has_overlap ? 1 : 0);
 }
 
 function aggregateFeaturesByCounty(features) {
@@ -817,7 +822,7 @@ function renderCountyPanel(features, countyKey = "") {
     </div>
     ${nowcastingRecords.length ? `
       <div class="nowcasting-county-block">
-        <h3>Nowcasting activ</h3>
+        <h3>Nowcasting arhivat în această zi</h3>
         ${nowcastingRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
       </div>
     ` : ""}
@@ -836,7 +841,8 @@ function countyAlertHtml(feature, index) {
       <dl class="detail-list compact-detail-list">
         ${detailRow("Interval", interval)}
         ${detailRow("Fenomen", phenomenon)}
-        ${props.zona_nume ? detailRow("Zonă", cleanDisplayText(props.zona_nume, "")) : ""}
+        ${(props.zone_name || props.zona_nume) ? detailRow("Zonă", cleanDisplayText(props.zone_name || props.zona_nume, "")) : ""}
+        ${props.geometry_source ? detailRow("Geometrie", cleanDisplayText(props.geometry_source, "")) : ""}
         ${detailRow("Sursa", sourceLabel(props.source || props.tip))}
       </dl>
     </article>
@@ -870,7 +876,10 @@ function renderVisibleAlertChips(records) {
 
 function alertChipHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
-  const sourcePrefix = isNowcastingRecord(record) ? "Nowcasting · " : `Cod ${String(COD_NAME[max] || "-").toLowerCase()} · `;
+  const source = String(record.source || "").toLowerCase();
+  const sourcePrefix = isNowcastingRecord(record)
+    ? `${source === "nowcasting_manual" ? "Nowcasting manual" : "Nowcasting"} · `
+    : `Cod ${String(COD_NAME[max] || "-").toLowerCase()} · `;
   return `
     <span class="visible-alert-chip lvl-${max} ${isNowcastingRecord(record) ? "nowcasting" : ""}">
       ${escapeHtml(sourcePrefix)}${escapeHtml(recordPrimaryPhenomenon(record))}
@@ -1335,13 +1344,20 @@ function renderCalendar() {
           ? "archived-only"
           : "no-data";
     const selectedClass = iso === selectedDate ? "selected" : "";
+    const nowcastingCount = safeNumber(info?.nowcasting_alert_count, info?.nowcasting_count || 0);
+    const manualNowcastingCount = safeNumber(info?.manual_nowcasting_alert_count, 0);
+    const generalCount = safeNumber(info?.general_alert_count, Math.max(0, safeNumber(info?.alert_count, 0) - nowcastingCount));
+    const phenomenaTitle = Array.isArray(info?.phenomena) && info.phenomena.length
+      ? ` · fenomene: ${info.phenomena.join(", ")}`
+      : "";
     const title = info
       ? info.has_archive && !info.has_geojson
-        ? `${pluralAnmAlerts(info.alert_count)} în arhivă · fără hartă GeoJSON`
-        : `${pluralAnmAlerts(info.alert_count)} · ${info.nowcasting_count || 0} nowcasting · cod maxim ${COD_NAME[code] || "-"}`
+        ? `${pluralAnmAlerts(info.alert_count)} în arhivă · ${nowcastingCount} nowcasting · fără hartă GeoJSON${phenomenaTitle}`
+        : `${generalCount} generale · ${nowcastingCount} nowcasting${manualNowcastingCount ? ` (${manualNowcastingCount} manual)` : ""} · cod maxim ${COD_NAME[code] || "-"}${phenomenaTitle}`
       : "fără date";
-    const ncBadge = info?.has_nowcasting ? `<span class="nc-badge" aria-hidden="true">NC</span>` : "";
-    cells += `<button type="button" class="cal-cell ${codeClass} ${selectedClass}" data-iso="${iso}" title="${escapeHtml(title)}">${day}${ncBadge}</button>`;
+    const ncBadge = info?.has_nowcasting ? `<span class="nc-badge ${info?.has_manual_nowcasting ? "manual" : ""}" aria-hidden="true">${info?.has_manual_nowcasting ? "NC*" : "NC"}</span>` : "";
+    const manualClass = info?.has_manual_nowcasting ? "has-manual-nowcasting" : "";
+    cells += `<button type="button" class="cal-cell ${codeClass} ${manualClass} ${selectedClass}" data-iso="${iso}" title="${escapeHtml(title)}">${day}${ncBadge}</button>`;
   }
 
   calendarElement.innerHTML = `
@@ -1620,13 +1636,18 @@ function compactPhenomenon(text) {
 }
 
 function sourceLabel(source) {
-  if (!source) return "General ANM";
-  return String(source).toLowerCase().includes("nowcasting") ? "Nowcasting" : "General ANM";
+  const normalized = String(source || "").toLowerCase();
+  if (normalized === "nowcasting_manual") return "Nowcasting - import manual";
+  if (normalized.includes("nowcasting")) return "Nowcasting";
+  return "General ANM";
 }
 
 function sourceBadge(source) {
-  const isNowcasting = String(source || "").toLowerCase().includes("nowcasting");
-  return `<span class="source-badge ${isNowcasting ? "nowcasting" : "general"}">${escapeHtml(isNowcasting ? "Nowcasting" : "General ANM")}</span>`;
+  const normalized = String(source || "").toLowerCase();
+  const isManual = normalized === "nowcasting_manual";
+  const isNowcasting = normalized.includes("nowcasting");
+  const label = isManual ? "Nowcasting - import manual" : isNowcasting ? "Nowcasting" : "General ANM";
+  return `<span class="source-badge ${isNowcasting ? "nowcasting" : "general"} ${isManual ? "manual" : ""}">${escapeHtml(label)}</span>`;
 }
 
 function presentCodesHtml(record) {

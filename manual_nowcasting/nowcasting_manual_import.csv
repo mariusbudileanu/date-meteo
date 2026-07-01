@@ -1,0 +1,2 @@
+﻿date,valid_from,valid_to,code,code_name,county_name,localities,phenomenon,phenomenon_group,message,source_url,source_label,notes
+2026-06-30,2026-06-30T20:50:00+03:00,2026-06-30T21:40:00+03:00,2,Portocaliu,Bucuresti,Bucuresti,ploi torentiale; descarcari electrice,ploi/vijelii,Import manual pentru episod nowcasting Bucuresti 30 iunie / 1 iulie. Detaliile complete nu au fost capturate de scraper la momentul activ.,,import manual,detalii incomplete; match_confidence=low; geometry_source=county_fallback

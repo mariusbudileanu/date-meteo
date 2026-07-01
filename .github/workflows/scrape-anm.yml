@@ -2,15 +2,17 @@ name: Scrape ANM and Deploy Pages
 
 on:
   schedule:
-    - cron: "0 0,6,12,18 * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - "public/**"
+      - "manual_nowcasting/**"
       - "src/**"
       - "requirements.txt"
+      - "README.md"
       - ".github/workflows/scrape-anm.yml"
       - "CODEX_INSTRUCTIONS.md"
 

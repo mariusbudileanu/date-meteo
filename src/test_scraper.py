@@ -9,15 +9,16 @@ import scraper as S
 
 @contextlib.contextmanager
 def isolated_output():
-    old = S.PUBLIC, S.DATA, S.ISTORIC
+    old = S.PUBLIC, S.DATA, S.ISTORIC, S.GEODATA
     base = tempfile.mkdtemp(prefix="meteo_test_isolated_")
     S.PUBLIC = base
     S.DATA = os.path.join(base, "data")
     S.ISTORIC = os.path.join(base, "istoric")
+    S.GEODATA = os.path.join(base, "geodata")
     try:
         yield base
     finally:
-        S.PUBLIC, S.DATA, S.ISTORIC = old
+        S.PUBLIC, S.DATA, S.ISTORIC, S.GEODATA = old
 
 R = 6378137.0
 def fwd(lon, lat):  # WGS84 -> Web Mercator (forward), pt. a construi fixture-uri
@@ -179,8 +180,11 @@ def test_nowcasting_separation():
     fc = S.build_daily_geojson(alerts, "2026-06-29")
     srcs = {f["properties"]["source"] for f in fc["features"]}
     assert "general" in srcs and "nowcasting" in srcs
-    # alert_count din metadata numara DOAR general
-    assert fc["metadata"]["alert_count"] == 2 and fc["metadata"]["nowcasting_count"] == 1
+    # alert_count numara totalul, iar campurile dedicate pastreaza separarea.
+    assert fc["metadata"]["alert_count"] == 3
+    assert fc["metadata"]["general_alert_count"] == 2
+    assert fc["metadata"]["nowcasting_alert_count"] == 1
+    assert fc["metadata"]["nowcasting_count"] == 1
     print("ok nowcasting_separation")
 
 def test_full_run_idempotent():
