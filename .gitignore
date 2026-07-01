@@ -11,3 +11,4 @@ DEBUG_METEOALERTRO_*.md
 files.zip
 meteoalert_debug.zip
 _incoming_files/
+src/geodata/ro_*_poligon_simplify.geojson
