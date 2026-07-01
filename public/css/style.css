@@ -2910,3 +2910,420 @@ input {
     gap: 10px;
   }
 }
+
+/* Panel layout final fix 2026-07-01 */
+:root {
+  --page-pad: var(--dashboard-page-pad, 18px);
+  --left-panel-w: clamp(292px, 20vw, 360px);
+  --right-panel-w: clamp(360px, 23vw, 460px);
+  --dashboard-gap: clamp(12px, 1vw, 16px);
+  --panel-radius: var(--dashboard-panel-radius, 22px);
+}
+
+.dashboard-workbench {
+  display: grid;
+  grid-template-columns:
+    var(--left-panel-w)
+    minmax(560px, 1fr)
+    var(--right-panel-w);
+  gap: var(--dashboard-gap);
+  align-items: stretch;
+  height: calc(100dvh - var(--header-h, 64px) - (var(--page-pad, 18px) * 2));
+  min-height: 680px;
+  max-height: 980px;
+}
+
+.map-column {
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--dashboard-gap);
+}
+
+.map-summary-panel {
+  min-width: 0;
+  min-height: 104px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.map-summary-panel .section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+#day-summary.map-summary-grid,
+.map-summary-grid {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.15fr)
+    repeat(4, minmax(110px, 0.85fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.summary-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  overflow: hidden;
+}
+
+.summary-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.summary-value {
+  margin-top: 4px;
+  font-size: clamp(1rem, 1.35vw, 1.45rem);
+  line-height: 1.05;
+  font-weight: 800;
+  color: #f8fafc;
+  overflow-wrap: anywhere;
+}
+
+.summary-value.is-severity-red {
+  color: #ef4444;
+}
+
+.summary-value.is-severity-orange {
+  color: #f97316;
+}
+
+.summary-value.is-severity-yellow {
+  color: #fbbf24;
+}
+
+.map-panel.map-section {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--panel-radius, 22px);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #020617;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+}
+
+.map-column > .map-panel.map-section {
+  grid-area: auto !important;
+}
+
+.map-canvas,
+#alerts-map {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.detail-panel {
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr) minmax(160px, 240px);
+  gap: 14px;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.detail-panel .summary-panel {
+  display: none !important;
+}
+
+.selected-county-panel,
+.visible-alerts-panel {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  max-height: none;
+  flex: initial;
+}
+
+.selected-county-panel {
+  padding: 16px;
+}
+
+.visible-alerts-panel {
+  padding: 14px;
+}
+
+.selected-county-panel > .section-title,
+.visible-alerts-panel > .section-title {
+  margin-top: 0;
+}
+
+.county-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.county-header h2 {
+  margin: 4px 0 0;
+  font-size: clamp(1.25rem, 1.6vw, 1.8rem);
+  line-height: 1.05;
+}
+
+.panel-eyebrow {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #94a3b8;
+}
+
+.county-kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.county-kpi-row > div,
+.county-fast-facts .detail-row {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.county-kpi-row strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1rem;
+  color: #f8fafc;
+}
+
+.county-overlap-badge {
+  width: fit-content;
+  margin-bottom: 12px;
+}
+
+.county-fast-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.county-fast-facts .detail-row {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.county-fast-facts dd {
+  margin: 0;
+}
+
+.county-alert-list {
+  display: grid;
+  gap: 10px;
+}
+
+.county-alert-item {
+  margin: 0;
+}
+
+.visible-alerts-panel .chips-row,
+.visible-alerts-panel .alerts-chip-list,
+.visible-alerts-panel .visible-alert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.control-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.control-panel * {
+  max-width: 100%;
+}
+
+.control-panel button,
+.control-panel select,
+.control-panel input {
+  width: 100%;
+  min-width: 0;
+}
+
+#calendar .cal-grid,
+.calendar .cal-grid {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+}
+
+#calendar .cal-cell,
+.calendar .cal-cell {
+  min-width: 0 !important;
+}
+
+@media (max-width: 1280px) {
+  .dashboard-workbench {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    grid-template-areas:
+      "controls map"
+      "details details";
+    height: auto;
+    max-height: none;
+  }
+
+  .control-panel {
+    grid-area: controls;
+    height: auto;
+    max-height: 760px;
+  }
+
+  .map-column {
+    grid-area: map;
+    min-height: 680px;
+  }
+
+  .map-summary-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    min-height: 0;
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  #day-summary.map-summary-grid,
+  .map-summary-grid {
+    grid-template-columns:
+      minmax(120px, 1.1fr)
+      repeat(4, minmax(84px, 0.9fr));
+    gap: 8px;
+  }
+
+  .summary-item {
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+
+  .summary-label {
+    font-size: 0.64rem;
+  }
+
+  .summary-value {
+    font-size: clamp(0.92rem, 1.1vw, 1.12rem);
+  }
+
+  .detail-panel {
+    grid-area: details;
+    min-height: 360px;
+    height: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr);
+    grid-template-rows: none;
+    overflow: hidden;
+  }
+
+  .selected-county-panel,
+  .visible-alerts-panel {
+    max-height: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-workbench {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "controls"
+      "map"
+      "details";
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .map-column {
+    min-height: auto;
+  }
+
+  .map-summary-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  #day-summary.map-summary-grid,
+  .map-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .map-panel.map-section {
+    height: 68vh;
+    min-height: 480px;
+  }
+
+  .detail-panel {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .selected-county-panel,
+  .visible-alerts-panel {
+    max-height: none;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 560px) {
+  #day-summary.map-summary-grid,
+  .map-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .map-summary-panel {
+    padding: 12px;
+  }
+
+  .summary-item {
+    padding: 9px 10px;
+  }
+
+  .summary-value {
+    font-size: 1rem;
+  }
+
+  .map-panel.map-section {
+    height: 66vh;
+    min-height: 480px;
+  }
+
+  .county-kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  .county-fast-facts .detail-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=layout-calibration-1">
+    <link rel="stylesheet" href="css/style.css?v=panel-final-fix-1">
   </head>
   <body>
     <header class="app-header dashboard-header">
@@ -80,21 +80,23 @@
           </div>
         </aside>
 
-        <section class="map-panel map-section" aria-label="Hartă avertizări meteo">
-          <div class="map-stage">
-            <p id="status" class="status-note" role="status" aria-live="polite">Se încarcă...</p>
-            <div id="alerts-map" aria-label="Hartă avertizări meteo România"></div>
-          </div>
-        </section>
-
-        <aside class="dashboard-panel detail-panel" aria-label="Detalii avertizări">
-          <section class="panel-section summary-panel" aria-labelledby="summary-panel-title">
+        <section class="map-column" aria-label="Rezumat și hartă avertizări">
+          <section class="dashboard-panel map-summary-panel" aria-labelledby="summary-panel-title">
             <h2 id="summary-panel-title" class="section-title">Rezumat zi</h2>
-            <div id="day-summary" aria-live="polite">
+            <div id="day-summary" class="map-summary-grid" aria-live="polite">
               <div class="summary-loading">Se încarcă rezumatul zilei...</div>
             </div>
           </section>
 
+          <section class="map-panel map-section" aria-label="Hartă avertizări meteo">
+            <div class="map-stage">
+              <p id="status" class="status-note" role="status" aria-live="polite">Se încarcă...</p>
+              <div id="alerts-map" class="map-canvas" aria-label="Hartă avertizări meteo România"></div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="dashboard-panel detail-panel" aria-label="Detalii avertizări">
           <section class="panel-section selected-county-panel" aria-labelledby="selected-feature-title">
             <h2 id="selected-feature-title" class="section-title">Județ selectat</h2>
             <div id="feature-details" class="feature-details empty-state">Selectează un județ pe hartă.</div>
@@ -192,6 +194,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=layout-calibration-1"></script>
+    <script src="js/app.js?v=panel-final-fix-1"></script>
   </body>
 </html>

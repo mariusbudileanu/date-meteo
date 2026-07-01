@@ -79,6 +79,7 @@ let mapMode = "max";
 let showOnlyOverlaps = false;
 
 const map = L.map("alerts-map", { center: ROMANIA_CENTER, zoom: 7, minZoom: 5, maxZoom: 12 });
+window.map = map;
 
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
   attribution: "© OpenStreetMap, © CARTO",
@@ -412,6 +413,7 @@ function renderArchiveOnlyDay(dateString, info = {}) {
   renderNowcastingSection([]);
   setStatus(ARCHIVE_ONLY_MESSAGE);
   publishDebugState([], []);
+  refreshMapSize();
 }
 
 function renderEmptyDashboard(dateString, message) {
@@ -426,6 +428,7 @@ function renderEmptyDashboard(dateString, message) {
   renderNowcastingSection([]);
   setStatus(message);
   publishDebugState([], []);
+  refreshMapSize();
 }
 
 function getVisibleFeatures({ respectVisibleAlertIds }) {
@@ -568,24 +571,36 @@ function renderDaySummary(features, dateLabel) {
     }
   }
 
+  const severityClass = maxCode === 3
+    ? " is-severity-red"
+    : maxCode === 2
+      ? " is-severity-orange"
+      : maxCode === 1
+        ? " is-severity-yellow"
+        : "";
+
+  daySummaryElement.classList.remove("empty-state");
+  daySummaryElement.classList.add("map-summary-grid");
   daySummaryElement.innerHTML = `
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <span class="kpi-label">Data selectată</span>
-        <div class="kpi-value">${escapeHtml(dateText)}</div>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Avertizări active</span>
-        <div class="kpi-value">${alertCount}</div>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Cod maxim</span>
-        <div class="kpi-value" style="color: ${COD_COLOR[maxCode] || 'inherit'}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-label">Actualizat la</span>
-        <div class="kpi-value">${escapeHtml(updatedLocal)}</div>
-      </div>
+    <div class="summary-item">
+      <span class="summary-label">Data selectată</span>
+      <div class="summary-value">${escapeHtml(dateText)}</div>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Avertizări active</span>
+      <div class="summary-value">${alertCount}</div>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Zone afectate</span>
+      <div class="summary-value">${zoneCount}</div>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Cod maxim</span>
+      <div class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
+    </div>
+    <div class="summary-item">
+      <span class="summary-label">Actualizat la</span>
+      <div class="summary-value">${escapeHtml(updatedLocal)}</div>
     </div>
   `;
 }
@@ -736,6 +751,11 @@ function renderCountyPanel(features, countyKey = "") {
   const nowcastingFeatures = features.filter(isNowcastingFeature);
   const generalRecords = uniqueFeaturesByAlert(generalFeatures);
   const nowcastingRecords = uniqueFeaturesByAlert(nowcastingFeatures);
+  const primaryFeature = generalRecords[0] || nowcastingRecords[0] || features[0];
+  const primaryProps = primaryFeature?.properties || {};
+  const primaryPhenomenon = cleanDisplayText(featureText(primaryFeature), "conform textului ANM");
+  const primaryInterval = cleanDisplayText(formatValidity(primaryProps), "interval indisponibil");
+  const primarySource = sourceLabel(primaryProps.source || primaryProps.tip);
 
   let weatherHtml = "";
   if (selectedDate === todayIso() || selectedDate === dataIndex.latest_date) {
@@ -765,15 +785,33 @@ function renderCountyPanel(features, countyKey = "") {
 
   featureDetailsElement.classList.remove("empty-state");
   featureDetailsElement.innerHTML = `
-    <div class="selected-zone">
-      <span>Județ: ${escapeHtml(countyName)}</span>
+    <div class="county-header">
+      <div>
+        <span class="panel-eyebrow">Județ selectat</span>
+        <h2>${escapeHtml(countyName)}</h2>
+      </div>
       ${codeChip(summary.maxCode)}
     </div>
-    <div class="county-summary-line">
-      <strong>Avertizări active: ${escapeHtml(String(summary.alertCount))}</strong>
-      <span>Cod maxim: ${escapeHtml(COD_NAME[summary.maxCode] || "-")}</span>
-      ${summary.alertCount > 1 ? `<span class="overlap-badge">alerte suprapuse</span>` : ""}
+
+    <div class="county-kpi-row">
+      <div>
+        <span class="summary-label">Avertizări active</span>
+        <strong>${escapeHtml(String(summary.alertCount))}</strong>
+      </div>
+      <div>
+        <span class="summary-label">Cod maxim</span>
+        <strong>${escapeHtml(COD_NAME[summary.maxCode] || "-")}</strong>
+      </div>
     </div>
+
+    ${summary.alertCount > 1 ? `<div class="overlap-badge county-overlap-badge">alerte suprapuse</div>` : ""}
+
+    <dl class="county-fast-facts">
+      ${detailRow("Fenomen", primaryPhenomenon)}
+      ${detailRow("Interval", primaryInterval)}
+      ${detailRow("Sursa", primarySource)}
+    </dl>
+
     <div class="county-alert-list">
       ${generalRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
     </div>
@@ -1369,11 +1407,12 @@ function debounce(fn, wait = 150) {
 }
 
 function refreshMapSize() {
-  if (!map) return;
-  requestAnimationFrame(() => {
-    map.invalidateSize(true);
+  const leafletMap = window.map || map;
+  if (!leafletMap || typeof leafletMap.invalidateSize !== "function") return;
+  setTimeout(() => {
+    leafletMap.invalidateSize(true);
     refitMapToCurrentLayer();
-  });
+  }, 120);
 }
 
 function refitMapToCurrentLayer() {
