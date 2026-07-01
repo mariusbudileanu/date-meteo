@@ -26,6 +26,8 @@ ENDPOINTS = {
     "general":    "https://www.meteoromania.ro/avertizari-xml.php",
     "nowcasting": "https://www.meteoromania.ro/avertizari-nowcasting-xml.php",
 }
+# XML-GIS endpoint: better structure with coordsGis geometry for nowcasting
+NOWCASTING_GIS_ENDPOINT = "https://www.meteoromania.ro/avertizari-nowcasting-xml-gis.php"
 PUBLIC = os.environ.get("METEO_OUT", "public")  # seteaza "." daca Pages serveste din radacina
 DATA    = os.path.join(PUBLIC, "data")
 ISTORIC = os.path.join(PUBLIC, "istoric")
@@ -154,7 +156,8 @@ def parse_locality_list(value):
 
 def parse_nowcasting_counties_and_localities(text):
     plain = html_to_plain(text)
-    pattern = re.compile(r"Jude[tÈ›Å£]ul\s+([^:;\n]+)\s*:\s*(.*?)(?=Jude[tÈ›Å£]ul\s+[^:;\n]+\s*:|$)", re.I | re.S)
+    # Match "Județul X: localities" — support both ț (U+021B) and ţ (U+0163) plus mojibake variants
+    pattern = re.compile(r"Jude[t\u021b\u0163È›Å£]ul\s+([^:;\n]+)\s*:\s*(.*?)(?=Jude[t\u021b\u0163È›Å£]ul\s+[^:;\n]+\s*:|$)", re.I | re.S)
     matches = list(pattern.finditer(plain))
     if matches:
         return [
@@ -165,7 +168,7 @@ def parse_nowcasting_counties_and_localities(text):
             for m in matches
         ]
 
-    county_match = re.search(r"Jude[tÈ›Å£]ul\s+([A-Za-zÄ‚Ã‚ÃŽÈ˜ÈšÄƒÃ¢Ã®È™È›ÅŸÅ£\-\s]+)", plain, re.I)
+    county_match = re.search(r"Jude[t\u021b\u0163È›Å£]ul\s+([A-Za-z\u0102\u0082\u00ce\u0218\u021a\u0103\u00e2\u00ee\u0219\u021b\u015f\u0163È›Å£\-\s]+)", plain, re.I)
     if county_match:
         return [{"county_name": county_match.group(1).strip(" .:-"), "localities": []}]
     return []
@@ -668,12 +671,72 @@ def make_content_hash(mesaj_plain, judete_culori):
     base = (mesaj_plain or "") + "|" + ",".join(f"{c}:{col}" for c, col in sorted(judete_culori.items()))
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
 
+def _nowcasting_xml_adapt_attribs(av, source):
+    """Normalize nowcasting XML attributes to match general XML format.
+
+    Nowcasting XML endpoints use different attribute names:
+      - Simple XML: dataInceput/dataSfarsit, zona, semnalare, culoare, numeCuloare
+      - XML-GIS:    dataInceput/dataSfarsit, avertizareNivelDenumire, fenomenAvertizat,
+                    coordsGis (note the 's'), <zona_afectata text="...">
+    This function extracts data into a normalized dict.
+    """
+    a = dict(av.attrib)
+    if not is_nowcasting_source(source):
+        return a
+
+    # Map dataInceput/dataSfarsit -> dataAparitiei/dataExpirarii if missing
+    if not a.get("dataAparitiei") and a.get("dataInceput"):
+        raw = a["dataInceput"].replace(" ", "T")
+        a["dataAparitiei"] = raw
+    if not a.get("dataExpirarii") and a.get("dataSfarsit"):
+        raw = a["dataSfarsit"].replace(" ", "T")
+        a["dataExpirarii"] = raw
+
+    # Map numeCuloare / avertizareNivelDenumire -> culoare code
+    # IMPORTANT: In nowcasting XML, 'culoare' is an internal ANM index (e.g. 1=portocaliu)
+    # while in general XML, culoare matches MeteoAlert codes (1=galben, 2=portocaliu).
+    # Always prefer the text name when available.
+    nivel = a.get("avertizareNivelDenumire") or a.get("numeCuloare") or ""
+    if nivel:
+        resolved = color_code_from_value(nivel)
+        if resolved > 0:
+            a["culoare"] = str(resolved)
+
+    # Map semnalare / fenomenAvertizat -> mesaj fallback
+    if not a.get("mesaj"):
+        semnalare = a.get("semnalare") or a.get("fenomenAvertizat") or ""
+        if semnalare:
+            a["_semnalare"] = semnalare
+
+    # Map zona attr -> zonaAfectata
+    if not a.get("zonaAfectata") and a.get("zona"):
+        a["zonaAfectata"] = a["zona"]
+
+    # Map coordsGis (with 's') -> coordGis
+    if not a.get("coordGis") and a.get("coordsGis"):
+        a["coordGis"] = a["coordsGis"]
+
+    # Extract zona_afectata sub-element text (XML-GIS)
+    for child in av:
+        tag = child.tag.split("}")[-1] if isinstance(child.tag, str) else ""
+        if tag == "zona_afectata" and child.attrib.get("text"):
+            if not a.get("zonaAfectata"):
+                a["zonaAfectata"] = child.attrib["text"]
+
+    return a
+
+
 def parse_avertizari(xml_bytes, source):
     root = ET.fromstring(xml_bytes)
     alerts = []
-    alert_elements = [el for el in root.iter() if isinstance(el.tag, str) and el.tag.split("}")[-1] == "avertizare"]
+    # For XML-GIS, root itself may be the <avertizare> element
+    root_tag = root.tag.split("}")[-1] if isinstance(root.tag, str) else ""
+    if root_tag == "avertizare":
+        alert_elements = [root]
+    else:
+        alert_elements = [el for el in root.iter() if isinstance(el.tag, str) and el.tag.split("}")[-1] == "avertizare"]
     for av in alert_elements:
-        a = av.attrib
+        a = _nowcasting_xml_adapt_attribs(av, source)
         if not a.get("dataExpirarii") and not is_nowcasting_source(source):
             continue
         exp_dt = parse_xml_datetime(a.get("dataExpirarii"))
@@ -681,6 +744,9 @@ def parse_avertizari(xml_bytes, source):
         base_year = (exp_dt or ap_dt or datetime.now()).year
         mesaj_html = a.get("mesaj", "")
         mesaj_plain = html_to_plain(mesaj_html)
+        # For nowcasting without mesaj, use semnalare/fenomenAvertizat as plain text
+        if not mesaj_plain and is_nowcasting_source(source):
+            mesaj_plain = a.get("_semnalare", "")
         sections = extract_sections_from_message(mesaj_html, base_year)
         sections_by_code = {}
         for sec in sections:
@@ -709,6 +775,15 @@ def parse_avertizari(xml_bytes, source):
             if code_match:
                 default_color = NUME_TO_COD.get(_norm(code_match.group(1)), 0)
 
+        # Check for alert-level coordGis (XML-GIS has it on the avertizare element itself)
+        alert_level_geom = None
+        alert_level_coord_gis = a.get("coordGis") or a.get("coordsGis") or ""
+        if alert_level_coord_gis and is_nowcasting_source(source):
+            try:
+                alert_level_geom = wkt_to_geojson_geometry(alert_level_coord_gis)
+            except Exception as ex:
+                print(f"  ! alert-level coordGis parse fail: {ex}", file=sys.stderr)
+
         for j in judete:
             cod = (j.attrib.get("cod") or j.attrib.get("codJudet") or "").upper()
             if not cod:
@@ -721,9 +796,10 @@ def parse_avertizari(xml_bytes, source):
             localities = parse_locality_list(j.attrib.get("localitati") or j.attrib.get("localitatiAfectate") or "")
             geometry_source = "missing"
             match_confidence = "low"
-            if j.attrib.get("coordGis"):
+            coord_gis_value = j.attrib.get("coordGis") or j.attrib.get("coordsGis") or ""
+            if coord_gis_value:
                 try:
-                    geom[cod] = wkt_to_geojson_geometry(j.attrib["coordGis"])
+                    geom[cod] = wkt_to_geojson_geometry(coord_gis_value)
                     coord_count += 1
                     geometry_source = "coordGis"
                     match_confidence = "high"
@@ -745,20 +821,31 @@ def parse_avertizari(xml_bytes, source):
             }
 
         if not jud_cul and is_nowcasting_source(source):
-            parsed_zones = parse_nowcasting_counties_and_localities(mesaj_plain or a.get("zonaAfectata", ""))
-            if not parsed_zones and a.get("zonaAfectata"):
-                parsed_zones = parse_nowcasting_counties_and_localities(a.get("zonaAfectata", ""))
+            # Try to extract counties from zona/zonaAfectata/zona_afectata text
+            zona_text = a.get("zonaAfectata") or a.get("zona") or ""
+            parsed_zones = parse_nowcasting_counties_and_localities(mesaj_plain or zona_text)
+            if not parsed_zones and zona_text:
+                parsed_zones = parse_nowcasting_counties_and_localities(zona_text)
             for zone in parsed_zones:
                 cod = county_code_for_name(zone.get("county_name"))
                 if not cod:
                     continue
                 cul = default_color or 1
                 localities = zone.get("localities") or []
-                fallback_geom, geometry_source, match_confidence = fallback_geometry_for_nowcasting(cod, localities)
+                geometry_source = "missing"
+                match_confidence = "low"
+                # Use alert-level geometry if available (XML-GIS)
+                if alert_level_geom:
+                    geom[cod] = alert_level_geom
+                    coord_count += 1
+                    geometry_source = "coordGis"
+                    match_confidence = "high"
+                else:
+                    fallback_geom, geometry_source, match_confidence = fallback_geometry_for_nowcasting(cod, localities)
+                    if fallback_geom:
+                        geom[cod] = fallback_geom
+                        fallback_count += 1
                 jud_cul[cod] = cul
-                if fallback_geom:
-                    geom[cod] = fallback_geom
-                    fallback_count += 1
                 zone_name = f"{JUDETE.get(cod, zone.get('county_name', cod))} - localitati" if localities else JUDETE.get(cod, cod)
                 feature_meta[cod] = {
                     "county_code": cod,
@@ -777,7 +864,15 @@ def parse_avertizari(xml_bytes, source):
         if not fen:
             fen = extract_phenomena_by_code(mesaj_html)
         if not fen and is_nowcasting_source(source):
-            fallback_fen = a.get("fenomene") or a.get("fenomeneVizate") or mesaj_plain
+            # Fallback: use semnalare, fenomenAvertizat, fenomene, or mesaj_plain
+            fallback_fen = (
+                a.get("_semnalare")
+                or a.get("fenomenAvertizat")
+                or a.get("semnalare")
+                or a.get("fenomene")
+                or a.get("fenomeneVizate")
+                or mesaj_plain
+            )
             if fallback_fen:
                 fen[str(max(jud_cul.values()) or default_color or 1)] = fallback_fen
 
@@ -802,18 +897,21 @@ def parse_avertizari(xml_bytes, source):
             key = nowcasting_dedupe_key(source, s.isoformat(), e.isoformat(), jud_cul, feature_meta, fen)
             alert_id = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
+        zona_afectata_text = a.get("zonaAfectata") or a.get("zona") or ""
+        data_emitere = a.get("dataAparitiei") or a.get("dataCreareAvertizare") or ""
+
         alerts.append({
             "source": source,
             "alert_type": "nowcasting" if is_nowcasting_source(source) else "general",
             "alert_id": alert_id,
             "content_hash": make_content_hash(mesaj_plain, jud_cul),
-            "data_emitere": a.get("dataAparitiei", ""),
+            "data_emitere": data_emitere,
             "interval_text": interval_text,
             "interval_start": s.isoformat(),
             "interval_end": e.isoformat(),
             "durata_ore": round((e - s).total_seconds() / 3600, 1),
             "cod_culoare_max": max(jud_cul.values()),
-            "zona_afectata_text": a.get("zonaAfectata", ""),
+            "zona_afectata_text": zona_afectata_text,
             "zile": zile,
             "jud": jud_cul,
             "geom": geom,
@@ -841,11 +939,18 @@ def fetch_xml_with_status(url):
 
 def xml_diagnostics(xml_bytes):
     root = ET.fromstring(xml_bytes)
-    raw_alerts = [el for el in root.iter() if isinstance(el.tag, str) and el.tag.split("}")[-1] == "avertizare"]
+    root_tag = root.tag.split("}")[-1] if isinstance(root.tag, str) else ""
+    if root_tag == "avertizare":
+        raw_alerts = [root]
+    else:
+        raw_alerts = [el for el in root.iter() if isinstance(el.tag, str) and el.tag.split("}")[-1] == "avertizare"]
     coord_count = 0
     for el in root.iter():
-        if any(k.lower().endswith("coordgis") for k in el.attrib):
+        if any(k.lower().endswith("coordgis") or k.lower().endswith("coordsgis") for k in el.attrib):
             coord_count += 1
+    # Also check root attribs (XML-GIS has coords on root)
+    if any(k.lower().endswith("coordgis") or k.lower().endswith("coordsgis") for k in root.attrib):
+        coord_count = max(coord_count, 1)
     return {"raw_alert_count": len(raw_alerts), "coord_gis_count": coord_count}
 
 # ------------------------------------------------------------------ arhiva CSV
@@ -1683,71 +1788,7 @@ def rebuild_istoric_manifest():
     with open(os.path.join(ISTORIC, "README.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-# ------------------------------------------------------------------ main
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--local", help="cale catre un XML local (test)")
-    ap.add_argument("--source", default="general", choices=["general", "nowcasting"])
-    args = ap.parse_args()
-
-    os.makedirs(DATA, exist_ok=True); os.makedirs(ISTORIC, exist_ok=True)
-
-    rebuild_history_stats()
-    rebuild_istoric_manifest()
-    return index, latest_day
-
-def glob_csv():
-    import glob
-    return [path for path in glob.glob(os.path.join(ISTORIC, "*", "*.csv")) if os.path.basename(os.path.dirname(path)).isdigit()]
-
-def rebuild_history_stats():
-    acc = {}
-    for path in sorted(glob_csv()):
-        with open(path, encoding="utf-8-sig") as f:
-            for r in csv.DictReader(f):
-                end = r["interval_end"]
-                for jcod, cul in json.loads(r["judete_culori_json"]).items():
-                    cul = int(cul)
-                    c = acc.setdefault(jcod, {"judet_cod": jcod, "judet_nume": JUDETE.get(jcod, jcod),
-                                              "alert_count": 0, "max_color": 0,
-                                              "last_alert_end": None, "color_counts": {}})
-                    c["alert_count"] += 1
-                    c["max_color"] = max(c["max_color"], cul)
-                    if cul > 0:
-                        c["color_counts"][str(cul)] = c["color_counts"].get(str(cul), 0) + 1
-                    if c["last_alert_end"] is None or end > c["last_alert_end"]:
-                        c["last_alert_end"] = end
-    counties = sorted(acc.values(), key=lambda x: x["judet_cod"])
-    write_json(os.path.join(DATA, "history_stats.json"),
-               {"generated_at_utc": now_utc(), "counties": counties})
-
-def rebuild_istoric_manifest():
-    months = []
-    for path in sorted(glob_csv()):
-        with open(path, encoding="utf-8-sig") as f:
-            rows = list(csv.DictReader(f))
-        if not rows: continue
-        dates = [r["interval_start"][:10] for r in rows]
-        months.append({
-            "month": os.path.basename(path)[:7],
-            "path": os.path.relpath(path, PUBLIC).replace(os.sep, "/"),
-            "alert_count": len(rows), "first_alert": min(dates), "last_alert": max(dates),
-            "max_color": max(int(r["cod_culoare_max"] or 0) for r in rows),
-            "size_bytes": os.path.getsize(path),
-        })
-    months.sort(key=lambda m: m["month"], reverse=True)
-    write_json(os.path.join(ISTORIC, "index.json"), {"generated_at_utc": now_utc(), "months": months})
-    lines = ["# Arhivă avertizări ANM (MeteoAlertRO)", "",
-             "CSV lunar, un rând per avertizare logică. Encoding UTF-8 (BOM).", "",
-             "| Lună | Alerte | Interval | Cod max | Fișier |", "|---|---|---|---|---|"]
-    for m in months:
-        fn = os.path.basename(m["path"])
-        rel = m["path"].split("istoric/", 1)[-1]
-        lines.append(f"| {m['month']} | {m['alert_count']} | {m['first_alert']}–{m['last_alert']} "
-                     f"| {COD_TO_NUME[m['max_color']]} | [{fn}]({rel}) |")
-    os.makedirs(ISTORIC, exist_ok=True)
-    with open(os.path.join(ISTORIC, "README.md"), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+# (duplicate main/glob_csv/rebuild_history_stats/rebuild_istoric_manifest removed — see below)
 
 def reset_nowcasting_runtime_stats():
     for key in ("live_alerts", "manual_imported", "archived_preserved", "with_coord_gis", "uat_fallback", "county_fallback", "without_geometry"):
@@ -1863,6 +1904,46 @@ def main():
                     print(f"[{source}] {url}: {len(got)} avertizari")
             except Exception as ex:
                 print(f"[{source}] EROARE: {ex}", file=sys.stderr)
+
+        # Also fetch XML-GIS endpoint for better nowcasting geometry
+        try:
+            gis_bytes, gis_status = fetch_xml_with_status(NOWCASTING_GIS_ENDPOINT)
+            gis_diagnostics = xml_diagnostics(gis_bytes)
+            gis_alerts = parse_avertizari(gis_bytes, "nowcasting")
+            # Merge GIS alerts: prefer GIS geometry over simple XML
+            existing_keys = set()
+            for al in alerts:
+                if is_nowcasting_source(al.get("source")):
+                    existing_keys.add((al["interval_start"], al["interval_end"]))
+            gis_added = 0
+            gis_upgraded = 0
+            for gis_al in gis_alerts:
+                key = (gis_al["interval_start"], gis_al["interval_end"])
+                if key in existing_keys:
+                    # Upgrade existing alert with GIS geometry if it has coordGis
+                    if gis_al.get("coord_gis_count", 0) > 0:
+                        for i, al in enumerate(alerts):
+                            if is_nowcasting_source(al.get("source")) and (al["interval_start"], al["interval_end"]) == key:
+                                # Merge geometry and metadata
+                                for cod, g in gis_al["geom"].items():
+                                    al["geom"][cod] = g
+                                    if cod in gis_al.get("feature_meta", {}):
+                                        al["feature_meta"][cod] = gis_al["feature_meta"][cod]
+                                al["coord_gis_count"] = max(al.get("coord_gis_count", 0), gis_al.get("coord_gis_count", 0))
+                                gis_upgraded += 1
+                                break
+                else:
+                    alerts.append(gis_al)
+                    existing_keys.add(key)
+                    NOWCASTING_RUNTIME_STATS["live_alerts"] += 1
+                    gis_added += 1
+            print(
+                f"[nowcasting_gis] {NOWCASTING_GIS_ENDPOINT}: status={gis_status} bytes={len(gis_bytes)} "
+                f"raw_alerts={gis_diagnostics['raw_alert_count']} coordGis={gis_diagnostics['coord_gis_count']} "
+                f"parsed={len(gis_alerts)} added={gis_added} upgraded={gis_upgraded}"
+            )
+        except Exception as ex:
+            print(f"[nowcasting_gis] EROARE: {ex}", file=sys.stderr)
 
     manual_alerts = load_manual_nowcasting_alerts()
     NOWCASTING_RUNTIME_STATS["manual_imported"] = sum(
