@@ -96,6 +96,19 @@ let showOnlyOverlaps = false;
 const map = L.map("alerts-map", { center: ROMANIA_CENTER, zoom: 7, minZoom: 5, maxZoom: 12 });
 window.map = map;
 
+map.createPane("base-counties-pane");
+map.getPane("base-counties-pane").style.zIndex = 390;
+
+map.createPane("general-alerts-pane");
+map.getPane("general-alerts-pane").style.zIndex = 410;
+
+map.createPane("nowcasting-alerts-pane");
+map.getPane("nowcasting-alerts-pane").style.zIndex = 430;
+
+map.createPane("labels-pane");
+map.getPane("labels-pane").style.zIndex = 450;
+
+
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
   attribution: "© OpenStreetMap, © CARTO",
   subdomains: "abcd",
@@ -652,7 +665,7 @@ function renderMap(features) {
     return;
   }
 
-  alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, {
+  alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, { pane: selectedSourceMode === "nowcasting" ? "nowcasting-alerts-pane" : "general-alerts-pane",
     style: aggregateStyle,
     onEachFeature: onEachAggregateFeature,
   }).addTo(map);
@@ -1006,6 +1019,7 @@ function countyAlertHtml(feature, index) {
         ${detailRow("Interval", interval)}
         ${detailRow("Fenomen", phenomenon)}
         ${(props.zone_name || props.zona_nume) ? detailRow("Zonă", cleanDisplayText(props.zone_name || props.zona_nume, "")) : ""}
+        ${isNowcastingFeature(feature) ? detailRow("Localități", formatLocalitiesHtml(props)) : ""}
         ${props.geometry_source ? detailRow("Geometrie", cleanDisplayText(props.geometry_source, "")) : ""}
         ${detailRow("Sursa", sourceLabel(props.source || props.tip))}
       </dl>
@@ -1165,9 +1179,9 @@ function alertCardHtml(record) {
         <div><span class="field-label">Coduri prezente</span>${presentCodesHtml(record)}</div>
         <div class="span-2"><span class="field-label">Fenomene pe cod</span>${phenomenaListHtml(record.fenomene_pe_cod)}</div>
       </div>
-      <details>
-        <summary>Vezi textul complet publicat de ANM</summary>
-        <div class="anm-message">${message || "Fără mesaj ANM."}</div>
+      <details class="alert-message-details">
+        <summary>${record.source === "nowcasting_manual" ? "Vezi mesajul importat manual" : "Vezi mesajul complet ANM"}</summary>
+        <div class="anm-message">${message || record.message || "Mesajul complet nu este disponibil în sursa arhivată."}</div>
       </details>
     </article>
   `;
@@ -1784,6 +1798,29 @@ function summaryCard(label, value, extraClass = "") {
 
 function detailRow(label, value) {
   return `<div class="detail-row"><dt class="detail-label">${escapeHtml(label)}</dt><dd>${escapeHtml(value || "-")}</dd></div>`;
+}
+
+function formatLocalitiesHtml(props) {
+  let locs = props.localities;
+  if (!locs || (Array.isArray(locs) && locs.length === 0)) {
+     if (props.localitati) locs = props.localitati;
+     else if (props.zone_localities) locs = props.zone_localities;
+     else if (props.uat_names) locs = props.uat_names;
+  }
+  let arr = [];
+  if (Array.isArray(locs)) arr = locs;
+  else if (typeof locs === "string") {
+    arr = locs.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  }
+  if (!arr || arr.length === 0) {
+     return escapeHtml(props.zone_name || props.display_name || props.county_name || "");
+  }
+  
+  if (arr.length <= 12) {
+    return escapeHtml(arr.join(", "));
+  } else {
+    return `${escapeHtml(arr.slice(0, 12).join(", "))} <em>(+ încă ${arr.length - 12} localități)</em>`;
+  }
 }
 
 function cleanDisplayText(value, fallback) {
