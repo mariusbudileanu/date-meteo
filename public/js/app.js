@@ -121,14 +121,7 @@ async function start() {
   renderEmptyDashboard(initialDate || todayIso(), "Se încarcă avertizările...");
 
   latestButton?.addEventListener("click", () => loadLatestAlerts());
-  sourceFilter?.addEventListener("change", () => {
-    if (nowcastingToggle) nowcastingToggle.checked = sourceFilter.value !== "general";
-    updateDashboard();
-  });
-  nowcastingToggle?.addEventListener("change", () => {
-    if (sourceFilter) sourceFilter.value = nowcastingToggle.checked ? "all" : "general";
-    updateDashboard();
-  });
+  sourceFilter?.addEventListener("change", () => updateDashboard());
   phenomenonFilter?.addEventListener("change", () => updateDashboard());
   severityFilter?.addEventListener("change", () => updateDashboard());
   mapModeSelect?.addEventListener("change", () => updateDashboard());
@@ -232,14 +225,13 @@ function syncControlState() {
 }
 
 function nowcastingEnabled() {
-  return selectedSourceMode !== "general" || Boolean(nowcastingToggle?.checked);
+  return selectedSourceMode !== "general";
 }
 
 function sourceMatchesFeature(feature) {
   const isNowcasting = isNowcastingFeature(feature);
   if (selectedSourceMode === "nowcasting") return isNowcasting;
   if (selectedSourceMode === "all") return true;
-  if (nowcastingToggle?.checked) return true;
   return !isNowcasting;
 }
 
@@ -254,7 +246,6 @@ function syncIndexAliases() {
 
 function resetDashboardFilters() {
   if (sourceFilter) sourceFilter.value = "general";
-  if (nowcastingToggle) nowcastingToggle.checked = false;
   if (phenomenonFilter) phenomenonFilter.value = "all";
   if (severityFilter) severityFilter.value = "all";
   if (mapModeSelect) mapModeSelect.value = "max";
@@ -536,7 +527,6 @@ function sourceMatchesRecord(record) {
   const isNowcasting = isNowcastingRecord(record);
   if (selectedSourceMode === "nowcasting") return isNowcasting;
   if (selectedSourceMode === "all") return true;
-  if (nowcastingToggle?.checked) return true;
   return !isNowcasting;
 }
 
@@ -552,31 +542,29 @@ function severityMatchesRecord(record) {
   return String(safeNumber(record.cod_culoare_max, 0)) === selectedSeverity;
 }
 
+function updateSummaryHtml() {
+  const statusData = window._statusData || {};
+  const checkedValue = statusData.last_checked_at_ro || statusData.last_checked_at_utc || dataIndex.generated_at_utc;
+  const dataValue = statusData.last_data_change_at_ro || statusData.last_data_change_at_utc || dataIndex.generated_at_utc;
+  const checkedTime = formatRoTime(checkedValue);
+  const dataTime = formatRoTime(dataValue);
+  const checkedDate = parseDateTimeValue(checkedValue);
+  const dataDate = parseDateTimeValue(dataValue);
+  const compact = checkedDate && dataDate && Math.abs(checkedDate.getTime() - dataDate.getTime()) <= 2 * 60 * 1000;
+  if (compact) {
+    return `<span class="update-line">Verificat și actualizat: ${escapeHtml(checkedTime)} RO</span>`;
+  }
+  return `
+    <span class="update-line">Verificat ANM: ${escapeHtml(checkedTime)} RO</span>
+    <span class="update-line">Date noi: ${escapeHtml(dataTime)} RO</span>
+  `;
+}
+
 function renderDaySummary(features, dateLabel) {
   const alertCount = countDistinctAlerts(features);
   const zoneCount = countDistinctCounties(features);
   const maxCode = maxCodeFromFeatures(features);
-  
-  // Actually count nowcasting vs general
-  let generalCount = 0;
-  let nowcastCount = 0;
-  features.forEach(f => {
-    if (isNowcastingFeature(f)) nowcastCount++;
-    else generalCount++;
-  });
-  
   const dateText = formatDisplayDate(dateLabel || selectedDate || todayIso());
-  
-  // Convert UTC to local Romanian time
-  const updatedUtc = dataIndex.generated_at_utc;
-  let updatedLocal = "necunoscută";
-  if (updatedUtc) {
-    const dt = new Date(updatedUtc);
-    if (!isNaN(dt.getTime())) {
-      const pad = (n) => n.toString().padStart(2, "0");
-      updatedLocal = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-    }
-  }
 
   const severityClass = maxCode === 3
     ? " is-severity-red"
@@ -605,28 +593,11 @@ function renderDaySummary(features, dateLabel) {
       <span class="summary-label">Cod maxim</span>
       <div class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
     </div>
-    <div class="summary-item summary-item--times">
-      <span class="summary-label">Verificat</span>
-      <div class="summary-value" id="summary-checked-time">${escapeHtml(updatedLocal)}</div>
-    </div>
-    <div class="summary-item" id="summary-data-time-item" style="display:none">
-      <span class="summary-label">Date</span>
-      <div class="summary-value" id="summary-data-time">—</div>
+    <div class="summary-item summary-item--update" title="„Verificat ANM” indică ultima interogare a surselor ANM. „Date noi” indică ultima modificare detectată în avertizări.">
+      <span class="summary-label">Actualizare</span>
+      <div class="summary-value">${updateSummaryHtml()}</div>
     </div>
   `;
-  // Populate heartbeat if status.json was loaded
-  const statusCheckedEl = document.getElementById("summary-checked-time");
-  const statusDataEl = document.getElementById("summary-data-time");
-  const statusDataItem = document.getElementById("summary-data-time-item");
-  if (window._statusData && window._statusData.last_checked_at_ro) {
-    const checkedRo = window._statusData.last_checked_at_ro;
-    const checkedTime = checkedRo.match(/T(\d{2}:\d{2})/)?.[1] || updatedLocal;
-    if (statusCheckedEl) statusCheckedEl.textContent = checkedTime;
-    const dataChangeUtc = window._statusData.last_data_change_at_utc;
-    const dataChangeTime = dataChangeUtc ? formatUtcStamp(dataChangeUtc) : updatedLocal;
-    if (statusDataEl) statusDataEl.textContent = dataChangeTime;
-    if (statusDataItem) statusDataItem.style.display = "";
-  }
 }
 
 function renderStatus(features, dateLabel) {
@@ -634,9 +605,29 @@ function renderStatus(features, dateLabel) {
     setStatus(NO_ALERTS_MESSAGE);
     return;
   }
-  const nowcastingCount = features.filter(isNowcastingFeature).length;
-  const nowcastingText = nowcastingCount ? ` · ${nowcastingCount} zone nowcasting afișate` : "";
-  setStatus(`${formatDisplayDate(dateLabel)} · ${pluralAnmAlerts(countDistinctAlerts(features))} · ${pluralZones(countDistinctCounties(features))}${nowcastingText}`);
+  setMapTitle(mapModeTitle(), mapMetaText(features, dateLabel));
+}
+
+function mapModeTitle() {
+  if (selectedSourceMode === "nowcasting") return "Nowcasting";
+  if (mapMode === "alert") return "Pe avertizare";
+  if (mapMode === "compare") return "Compară avertizările";
+  if (mapMode === "phenomenon") return "Pe fenomen";
+  return "Cod maxim pe județ";
+}
+
+function mapMetaText(features, dateLabel) {
+  const dateText = formatDisplayDate(dateLabel);
+  if (mapMode === "compare") return dateText;
+  const alerts = countDistinctAlerts(features);
+  const zones = countDistinctCounties(features);
+  if (selectedSourceMode === "nowcasting") {
+    return `${dateText} · ${escapeHtml(pluralNowcastingAlerts(alerts))}`;
+  }
+  if (mapMode === "alert") {
+    return `${dateText} · ${escapeHtml(pluralDisplayedAlerts(alerts))}`;
+  }
+  return `${dateText} · ${escapeHtml(pluralAnmAlerts(alerts))} · ${escapeHtml(pluralZones(zones))}`;
 }
 
 function renderMap(features) {
@@ -759,9 +750,12 @@ function onEachAggregateFeature(feature, layer) {
   }
 }
 
-function renderSelectedEmpty(message = "Selectează un județ de pe hartă pentru detalii despre avertizările active.") {
+function renderSelectedEmpty(message = "Selectează un județ pe hartă pentru detalii.") {
   featureDetailsElement.classList.add("empty-state");
-  featureDetailsElement.innerHTML = escapeHtml(message);
+  featureDetailsElement.innerHTML = `
+    <p>${escapeHtml(message)}</p>
+    <p>Vei vedea codul maxim, fenomenele active și eventualele alerte nowcasting.</p>
+  `;
 }
 
 function renderSelectedCountyPanel(countyKey, features) {
@@ -795,7 +789,7 @@ function renderCountyPanel(features, countyKey = "") {
           const desc = s.weather ? `, ${s.weather.toLowerCase()}` : "";
           return `<li>${escapeHtml(s.station_name)}: ${temp}${escapeHtml(desc)}</li>`;
       }).join("");
-      const updated = currentWeather.fetched_at_utc ? formatUtcStamp(currentWeather.fetched_at_utc) : "necunoscut";
+      const updated = currentWeather.fetched_at_utc ? `${formatRoDateTime(currentWeather.fetched_at_utc)} RO` : "necunoscut";
       weatherHtml = `
         <div class="weather-panel">
           <h3>Starea vremii acum în județ</h3>
@@ -841,13 +835,20 @@ function renderCountyPanel(features, countyKey = "") {
       ${detailRow("Sursa", primarySource)}
     </dl>
 
-    <div class="county-alert-list">
-      ${generalRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
-    </div>
+    ${generalRecords.length ? `
+      <div class="county-alert-source-block">
+        <h3>General ANM</h3>
+        <div class="county-alert-list">
+          ${generalRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
+        </div>
+      </div>
+    ` : ""}
     ${nowcastingRecords.length ? `
-      <div class="nowcasting-county-block">
-        <h3>Nowcasting arhivat în această zi</h3>
-        ${nowcastingRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
+      <div class="county-alert-source-block nowcasting-county-block">
+        <h3>Nowcasting</h3>
+        <div class="county-alert-list">
+          ${nowcastingRecords.map((feature, index) => countyAlertHtml(feature, index + 1)).join("")}
+        </div>
       </div>
     ` : ""}
     ${weatherHtml}
@@ -890,23 +891,31 @@ function renderVisibleAlertChips(records) {
   if (!visibleAlertChipsElement) return;
   const visibleRecords = records.filter((record) => visibleAlertIds.has(record.alert_id));
   if (!visibleRecords.length) {
-    visibleAlertChipsElement.innerHTML = `<span class="empty-chip">Nu există alerte afișate.</span>`;
+    visibleAlertChipsElement.innerHTML = `<span class="empty-chip">Nu există alerte afișate pentru filtrele curente.</span>`;
     return;
   }
-  visibleAlertChipsElement.innerHTML = visibleRecords
-    .map((record) => alertChipHtml(record))
+  const groups = [
+    ["General ANM", visibleRecords.filter((record) => !isNowcastingRecord(record))],
+    ["Nowcasting", visibleRecords.filter(isNowcastingRecord)],
+  ].filter(([, groupRecords]) => groupRecords.length);
+  visibleAlertChipsElement.innerHTML = groups
+    .map(([title, groupRecords]) => `
+      <div class="visible-alert-group">
+        <div class="visible-alert-group-title">${escapeHtml(title)}</div>
+        <div class="visible-alert-chip-row">
+          ${groupRecords.map((record) => alertChipHtml(record)).join("")}
+        </div>
+      </div>
+    `)
     .join("");
 }
 
 function alertChipHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
-  const source = String(record.source || "").toLowerCase();
-  const sourcePrefix = isNowcastingRecord(record)
-    ? `${source === "nowcasting_manual" ? "Nowcasting manual" : "Nowcasting"} · `
-    : `Cod ${String(COD_NAME[max] || "-").toLowerCase()} · `;
+  const codePrefix = `Cod ${String(COD_NAME[max] || "-").toLowerCase()} · `;
   return `
     <span class="visible-alert-chip lvl-${max} ${isNowcastingRecord(record) ? "nowcasting" : ""}">
-      ${escapeHtml(sourcePrefix)}${escapeHtml(recordPrimaryPhenomenon(record))}
+      ${escapeHtml(codePrefix)}${escapeHtml(recordPrimaryPhenomenon(record))}
     </span>
   `;
 }
@@ -952,6 +961,7 @@ function renderCompareSection(records) {
 function compareAlertCardHtml(record) {
   const max = safeNumber(record.cod_culoare_max, 0);
   const phenomenon = recordPrimaryPhenomenon(record);
+  const interval = formatRecordInterval(record);
   return `
     <article class="compare-alert-card lvl-${max} ${isNowcastingRecord(record) ? "nowcasting-card" : ""}" data-alert-id="${escapeHtml(record.alert_id)}">
       <div class="alert-card-head">
@@ -962,7 +972,7 @@ function compareAlertCardHtml(record) {
         ${codeChip(max)}
       </div>
       <div class="compare-meta">
-        <span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</span>
+        <span>${escapeHtml(interval)}</span>
         <span>${escapeHtml(pluralZones(safeNumber(record.judete_count, 0)))}</span>
       </div>
       <button type="button" class="mini-button compare-card-action compare-isolate" data-alert-id="${escapeHtml(record.alert_id)}">Vezi această hartă</button>
@@ -988,6 +998,7 @@ function alertCardHtml(record) {
   const message = DOMPurify.sanitize(record.text_alerta_html || "");
   const checked = visibleAlertIds.has(record.alert_id) ? "checked" : "";
   const phenomenon = recordPrimaryPhenomenon(record);
+  const interval = formatRecordInterval(record);
   const geometryNote = record.features?.length ? "" : `<p class="geometry-note">Alertă activă în metadata, fără geometrii desenabile.</p>`;
   return `
     <article class="alert-card lvl-${max} ${isNowcastingRecord(record) ? "nowcasting-card" : ""}" data-alert-id="${escapeHtml(record.alert_id)}">
@@ -1009,7 +1020,7 @@ function alertCardHtml(record) {
       ${geometryNote}
       <div class="alert-card-grid">
         <div><span class="field-label">Fenomen</span><strong>${escapeHtml(phenomenon)}</strong></div>
-        <div><span class="field-label">Interval</span>${escapeHtml(record.interval_text || formatRange(record.interval_start, record.interval_end) || "-")}</div>
+        <div><span class="field-label">Interval</span>${escapeHtml(interval)}</div>
         <div><span class="field-label">Zone afectate</span>${escapeHtml(pluralZones(safeNumber(record.judete_count, 0)))}</div>
         <div><span class="field-label">Sursa</span>${escapeHtml(sourceLabel(record.source))}</div>
         <div><span class="field-label">Coduri prezente</span>${presentCodesHtml(record)}</div>
@@ -1320,7 +1331,7 @@ function renderCountyHistory(countyCode) {
       <div><span class="field-label">Ultima alertă</span><strong>${escapeHtml(formatAlertDateTime(county.last_alert_end) || "-")}</strong></div>
       <div><span class="field-label">Cod maxim istoric</span>${codeChip(county.max_color)}</div>
     </div>
-    ${total < 10 ? `<p class="history-note">Istoricul este încă la început și va deveni mai relevant după mai multe rulări.</p>` : ""}
+    ${total < 10 ? `<p class="history-note">Statisticile se actualizează automat pe măsură ce sunt arhivate noi avertizări.</p>` : ""}
   `;
 }
 
@@ -1394,6 +1405,11 @@ function renderCalendar() {
       <button type="button" class="icon-button" id="cal-next" aria-label="Luna următoare">›</button>
     </div>
     <div class="cal-grid">${weekdays}${cells}</div>
+    <div class="calendar-mini-legend" aria-label="Legendă calendar">
+      <span><strong>Culoarea zilei</strong> = codul maxim</span>
+      <span><strong>NC</strong> = nowcasting capturat automat</span>
+      <span><strong>NC*</strong> = nowcasting importat manual</span>
+    </div>
   `;
   document.getElementById("cal-prev").addEventListener("click", () => {
     viewMonth -= 1;
@@ -1419,7 +1435,7 @@ function addLegend() {
         <span>${COD_NAME[code]}</span>
       </button>
     `).join("");
-    container.innerHTML = `<div class="legend-title">Filtru cod</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
+    container.innerHTML = `<div class="legend-title">Coduri afișate</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
     setTimeout(() => {
       container.querySelectorAll(".legend-filter").forEach((button) => {
         button.addEventListener("click", () => {
@@ -1577,15 +1593,12 @@ function isNowcastingRecord(record) {
 
 function renderLastUpdated(generatedAtUtc, statusData) {
   if (!lastUpdatedElement) return;
-  // If we have status.json heartbeat data, show two separate timestamps
   if (statusData && statusData.last_checked_at_ro) {
-    const checkedRo = statusData.last_checked_at_ro;
-    const checkedTime = checkedRo.match(/T(\d{2}:\d{2})/)?.[1] || "?";
-    const dataChangeUtc = statusData.last_data_change_at_utc || generatedAtUtc;
-    const dataChangeTime = formatUtcStamp(dataChangeUtc) || "?";
-    lastUpdatedElement.innerHTML = `<span title="Ora la care workflow-ul a verificat ANM">Verificat: <strong>${checkedTime}</strong></span> &nbsp;·&nbsp; <span title="Ultima oră la care datele s-au schimbat">Date: <strong>${dataChangeTime}</strong></span>`;
+    const checkedTime = formatRoTime(statusData.last_checked_at_ro);
+    const dataChangeTime = formatRoTime(statusData.last_data_change_at_ro || statusData.last_data_change_at_utc || generatedAtUtc);
+    lastUpdatedElement.innerHTML = `<span title="Ultima interogare a surselor ANM">Verificat ANM: <strong>${checkedTime} RO</strong></span> &nbsp;·&nbsp; <span title="Ultima modificare detectată în avertizări">Date noi: <strong>${dataChangeTime} RO</strong></span>`;
   } else {
-    lastUpdatedElement.textContent = `Actualizat la: ${formatUtcStamp(generatedAtUtc) || "necunoscută"}`;
+    lastUpdatedElement.textContent = `Actualizat la: ${formatRoDateTime(generatedAtUtc)} RO`;
   }
 }
 
@@ -1628,10 +1641,27 @@ function cleanDisplayText(value, fallback) {
 }
 
 function formatValidity(props) {
+  const explicitInterval = props.interval_text || props.intervalul || "";
+  const formattedRange = formatRange(props.interval_start || props.valid_from || props.data_aparitiei, props.interval_end || props.valid_to || props.data_expirare);
+  if (/\d{4}-\d{2}-\d{2}T/.test(String(explicitInterval)) && formattedRange) {
+    return formattedRange;
+  }
   return cleanDisplayText(
-    props.interval_text || props.intervalul || formatRange(props.interval_start || props.data_aparitiei, props.interval_end || props.data_expirare),
+    explicitInterval || formattedRange,
     "interval indisponibil"
   );
+}
+
+function formatRecordInterval(record) {
+  const explicitInterval = record.interval_text || record.intervalul || "";
+  const formattedRange = formatRange(
+    record.interval_start || record.valid_from || record.data_aparitiei,
+    record.interval_end || record.valid_to || record.data_expirare
+  );
+  if (/\d{4}-\d{2}-\d{2}T/.test(String(explicitInterval)) && formattedRange) {
+    return formattedRange;
+  }
+  return cleanDisplayText(explicitInterval || formattedRange, "-");
 }
 
 function formatRange(start, end) {
@@ -1640,10 +1670,10 @@ function formatRange(start, end) {
 
 function formatAlertDateTime(value) {
   if (!value) return "";
-  const date = new Date(String(value).length === 16 ? `${value}:00` : value);
-  if (Number.isNaN(date.getTime())) return value;
-  const dayMonth = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "long" }).format(date);
-  const time = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" }).format(date);
+  const date = parseDateTimeValue(value);
+  if (!date) return value;
+  const dayMonth = new Intl.DateTimeFormat("ro-RO", { timeZone: "Europe/Bucharest", day: "numeric", month: "long" }).format(date);
+  const time = formatRoTime(date);
   return `${dayMonth}, ora ${time}`;
 }
 
@@ -1655,14 +1685,39 @@ function localIsoMinute(date) {
 function formatDisplayDate(value) {
   const parsed = parseIsoDate(value);
   if (!parsed) return value || "-";
-  return new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "long", year: "numeric" }).format(parsed);
+  return new Intl.DateTimeFormat("ro-RO", { timeZone: "Europe/Bucharest", day: "numeric", month: "long", year: "numeric" }).format(parsed);
 }
 
-function formatUtcStamp(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")} ${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")} UTC`;
+function parseDateTimeValue(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const text = String(value);
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) ? `${text}:00` : text;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatRoTime(value) {
+  const date = parseDateTimeValue(value);
+  if (!date) return "indisponibil";
+  return new Intl.DateTimeFormat("ro-RO", {
+    timeZone: "Europe/Bucharest",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatRoDateTime(value) {
+  const date = parseDateTimeValue(value);
+  if (!date) return "indisponibil";
+  return new Intl.DateTimeFormat("ro-RO", {
+    timeZone: "Europe/Bucharest",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function compactPhenomenon(text) {
@@ -1718,6 +1773,20 @@ function pluralActiveAlerts(count) {
   return `${n} avertizări active`;
 }
 
+function pluralDisplayedAlerts(count) {
+  const n = safeNumber(count, 0);
+  if (n === 1) return "1 avertizare afișată";
+  if (n >= 20) return `${n} de avertizări afișate`;
+  return `${n} avertizări afișate`;
+}
+
+function pluralNowcastingAlerts(count) {
+  const n = safeNumber(count, 0);
+  if (n === 1) return "1 avertizare nowcasting";
+  if (n >= 20) return `${n} de avertizări nowcasting`;
+  return `${n} avertizări nowcasting`;
+}
+
 function pluralZones(count) {
   const n = safeNumber(count, 0);
   if (n === 1) return "1 zonă afectată";
@@ -1752,6 +1821,16 @@ async function fetchJson(url) {
 
 function setStatus(message) {
   if (statusElement) statusElement.textContent = message;
+}
+
+function setMapTitle(mode, meta) {
+  if (!statusElement) return;
+  statusElement.innerHTML = `
+    <span class="map-title-overlay">
+      <span class="map-title-mode">${escapeHtml(mode)}</span>
+      <span class="map-title-meta">${escapeHtml(meta)}</span>
+    </span>
+  `;
 }
 
 function safeNumber(value, fallback = 0) {
