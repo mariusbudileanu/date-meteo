@@ -658,7 +658,15 @@ function mapMetaText(features, dateLabel) {
 
 function renderMap(features) {
   clearAlertsLayer();
-  const aggregateFeatures = aggregateFeaturesByCounty(features).sort((a, b) => aggregateZIndexScore(a) - aggregateZIndexScore(b));
+  const aggregateFeatures = aggregateFeaturesByCounty(features).sort((a, b) => {
+    const scoreDiff = aggregateZIndexScore(a) - aggregateZIndexScore(b);
+    if (scoreDiff !== 0) return scoreDiff;
+    const keyA = a.properties?.county_key || "";
+    const keyB = b.properties?.county_key || "";
+    if (keyA === "B") return 1;
+    if (keyB === "B") return -1;
+    return 0;
+  });
   updateBaseCountyLayer(aggregateFeatures);
   if (!features.length) {
     map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
@@ -1430,6 +1438,20 @@ function applyDemoNowcastingFixture(data) {
 async function loadBaseCounties() {
   try {
     const data = await fetchJson("data/judete.geojson");
+    
+    data.features = data.features
+      .filter((feature) => {
+        const key = baseCountyKey(feature);
+        return key === baseCountyRootKey(key);
+      })
+      .sort((a, b) => {
+        const keyA = baseCountyKey(a);
+        const keyB = baseCountyKey(b);
+        if (keyA === "B") return 1;
+        if (keyB === "B") return -1;
+        return 0;
+      });
+
     baseCountyLayer = L.geoJSON(data, {
       style: (feature) => baseCountyStyle(feature),
       interactive: true,
