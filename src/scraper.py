@@ -1895,6 +1895,7 @@ def main():
                     NOWCASTING_RUNTIME_STATS["live_alerts"] = len(got)
                     feature_count = sum(len(a.get("geom", {})) for a in got)
                     fallback_count = sum(a.get("fallback_geometry_count", 0) for a in got)
+                    _register_debug_bytes("xml", xml_bytes, status)
                     print(
                         f"[nowcasting] {url}: status={status} bytes={len(xml_bytes)} "
                         f"raw_alerts={diagnostics['raw_alert_count']} coordGis={diagnostics['coord_gis_count']} "
@@ -1908,6 +1909,7 @@ def main():
         # Also fetch XML-GIS endpoint for better nowcasting geometry
         try:
             gis_bytes, gis_status = fetch_xml_with_status(NOWCASTING_GIS_ENDPOINT)
+            _register_debug_bytes("xml_gis", gis_bytes, gis_status)
             gis_diagnostics = xml_diagnostics(gis_bytes)
             gis_alerts = parse_avertizari(gis_bytes, "nowcasting")
             # Merge GIS alerts: prefer GIS geometry over simple XML
@@ -1960,6 +1962,147 @@ def main():
     log_nowcasting_runtime_stats()
     print(f"Zile generate: {list(index['dates'].keys())}")
     print(f"latest.geojson -> {latest}")
+
+    # Write heartbeat status.json at every run (even with no data changes)
+    write_status_json(alerts, index)
+
+    # Save debug snapshot of nowcasting raw XMLs
+    if not args.local:
+        save_debug_snapshots()
+
+
+def write_status_json(alerts, index):
+    """Write public/data/status.json at every scraper run — heartbeat for frontend."""
+    try:
+        now = datetime.now(timezone.utc)
+        now_ro = now.astimezone(timezone(timedelta(hours=3)))  # UTC+3 (Romania summer)
+        nc_alerts = [a for a in alerts if is_nowcasting_source(a.get("source")) and a.get("source") != "nowcasting_manual"]
+        manual_nc = [a for a in alerts if a.get("source") == "nowcasting_manual"]
+        general_alerts = [a for a in alerts if not is_nowcasting_source(a.get("source"))]
+        counties_nc = sorted({
+            JUDETE.get(cod, cod)
+            for al in nc_alerts
+            for cod in al.get("jud", {})
+        })
+        codes_nc = sorted({
+            COD_TO_NUME.get(max(al.get("jud", {}).values(), default=0), "")
+            for al in nc_alerts
+            if al.get("jud")
+        })
+
+        # Determine last data change from index
+        latest_entry = index.get("dates", {}).get(index.get("latest_date", ""), {})
+        last_data_change_utc = latest_entry.get("generated_at_utc") or now_utc()
+
+        status = {
+            "last_checked_at_utc": now.isoformat(timespec="seconds"),
+            "last_checked_at_ro": now_ro.isoformat(timespec="seconds"),
+            "workflow_frequency": "15min",
+            "cron": "*/15 * * * *",
+            "general": {
+                "status": 200,
+                "alert_count": len(general_alerts),
+                "feature_count": sum(len(a.get("geom", {})) for a in general_alerts),
+            },
+            "nowcasting": {
+                "xml_status": 200,
+                "xml_alert_count": NOWCASTING_RUNTIME_STATS.get("live_alerts", 0),
+                "xml_gis_alert_count": NOWCASTING_RUNTIME_STATS.get("with_coord_gis", 0),
+                "parsed_count": len(nc_alerts),
+                "manual_count": len(manual_nc),
+                "coordGis": NOWCASTING_RUNTIME_STATS.get("with_coord_gis", 0),
+                "uat_fallback": NOWCASTING_RUNTIME_STATS.get("uat_fallback", 0),
+                "county_fallback": NOWCASTING_RUNTIME_STATS.get("county_fallback", 0),
+                "without_geometry": NOWCASTING_RUNTIME_STATS.get("without_geometry", 0),
+                "counties": counties_nc,
+                "codes": [c for c in codes_nc if c],
+            },
+            "last_data_change_at_utc": last_data_change_utc,
+            "index_generated_at_utc": index.get("generated_at_utc", ""),
+        }
+        write_json(os.path.join(DATA, "status.json"), status)
+        print(f"[status] Scris status.json: verificat={now_ro.strftime('%H:%M')} nowcasting_live={len(nc_alerts)}")
+    except Exception as ex:
+        print(f"[status] EROARE scriere status.json: {ex}", file=sys.stderr)
+
+
+# ------------------------------------------------------------------ debug snapshots
+DEBUG_SNAPSHOTS_DIR = os.path.join(PUBLIC, "debug", "nowcasting")
+DEBUG_SNAPSHOT_MAX = 96  # keep max 96 snapshots (~24h la 15min)
+
+_debug_xml_bytes = {}   # filled by main() during fetch, keyed by "xml" / "xml_gis"
+_debug_xml_status = {}
+
+def _register_debug_bytes(key, data, status):
+    """Called by main() after each fetch to register raw bytes for snapshot."""
+    _debug_xml_bytes[key] = data
+    _debug_xml_status[key] = status
+
+
+def save_debug_snapshots():
+    """Save raw XML snapshots + summary.json to public/debug/nowcasting/."""
+    try:
+        os.makedirs(DEBUG_SNAPSHOTS_DIR, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%Y-%m-%d_%H%M")
+
+        # Save XMLs
+        for key, suffix in [("xml", "nowcasting"), ("xml_gis", "nowcasting_gis")]:
+            data = _debug_xml_bytes.get(key)
+            if data:
+                snap_path = os.path.join(DEBUG_SNAPSHOTS_DIR, f"{ts}_{suffix}.xml")
+                with open(snap_path, "wb") as f:
+                    f.write(data)
+
+        # Save summary.json
+        summary = {
+            "checked_at_utc": now.isoformat(timespec="seconds"),
+            "xml_status": _debug_xml_status.get("xml", 0),
+            "xml_bytes": len(_debug_xml_bytes.get("xml", b"")),
+            "xml_alert_count": NOWCASTING_RUNTIME_STATS.get("live_alerts", 0),
+            "xml_gis_status": _debug_xml_status.get("xml_gis", 0),
+            "xml_gis_bytes": len(_debug_xml_bytes.get("xml_gis", b"")),
+            "xml_gis_alert_count": NOWCASTING_RUNTIME_STATS.get("with_coord_gis", 0),
+            "parsed_nowcasting_count": NOWCASTING_RUNTIME_STATS.get("live_alerts", 0),
+            "coordGis": NOWCASTING_RUNTIME_STATS.get("with_coord_gis", 0),
+            "uat_fallback": NOWCASTING_RUNTIME_STATS.get("uat_fallback", 0),
+            "county_fallback": NOWCASTING_RUNTIME_STATS.get("county_fallback", 0),
+            "without_geometry": NOWCASTING_RUNTIME_STATS.get("without_geometry", 0),
+        }
+        write_json(os.path.join(DEBUG_SNAPSHOTS_DIR, f"{ts}_summary.json"), summary)
+
+        # Cleanup: keep only last DEBUG_SNAPSHOT_MAX snapshots
+        cleanup_old_snapshots()
+        print(f"[debug] Snapshot salvat: {ts}")
+    except Exception as ex:
+        print(f"[debug] EROARE snapshot: {ex}", file=sys.stderr)
+
+
+def cleanup_old_snapshots():
+    """Keep only the most recent DEBUG_SNAPSHOT_MAX snapshots."""
+    try:
+        all_files = sorted([
+            os.path.join(DEBUG_SNAPSHOTS_DIR, f)
+            for f in os.listdir(DEBUG_SNAPSHOTS_DIR)
+            if re.match(r"^\d{4}-\d{2}-\d{2}_\d{4}_", f)
+        ])
+        # Group by timestamp prefix (YYYY-MM-DD_HHMM)
+        timestamps = sorted({
+            re.match(r"^(\d{4}-\d{2}-\d{2}_\d{4})_", os.path.basename(f)).group(1)
+            for f in all_files
+            if re.match(r"^(\d{4}-\d{2}-\d{2}_\d{4})_", os.path.basename(f))
+        })
+        if len(timestamps) > DEBUG_SNAPSHOT_MAX:
+            to_delete_ts = timestamps[: len(timestamps) - DEBUG_SNAPSHOT_MAX]
+            for f in all_files:
+                base = os.path.basename(f)
+                m = re.match(r"^(\d{4}-\d{2}-\d{2}_\d{4})_", base)
+                if m and m.group(1) in to_delete_ts:
+                    os.remove(f)
+            print(f"[debug] Cleanup: sterse {len(to_delete_ts)} seturi vechi de snapshot-uri")
+    except Exception as ex:
+        print(f"[debug] EROARE cleanup snapshot: {ex}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

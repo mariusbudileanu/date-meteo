@@ -33,6 +33,15 @@ jobs:
       pushed_changes: ${{ steps.commit.outputs.pushed_changes }}
 
     steps:
+      - name: Log workflow timing
+        run: |
+          echo "workflow_frequency=15min"
+          echo "cron=*/15 * * * *"
+          echo "github_event_name=${{ github.event_name }}"
+          echo "github_run_id=${{ github.run_id }}"
+          echo "utc_now=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "ro_now=$(TZ='Europe/Bucharest' date +'%Y-%m-%dT%H:%M:%S%z')"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -61,7 +70,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add public/data/ public/istoric/ || true
+          git add public/data/ public/istoric/ public/debug/ || true
 
           if git diff --cached --quiet; then
             echo "No generated data changes to commit."
@@ -99,6 +108,7 @@ jobs:
           test -f public/data/index.json
           test -f public/data/latest.geojson
           test -f public/data/history_stats.json
+          test -f public/data/status.json || echo "WARNING: status.json not found (first run?)"
           echo "Public folder is ready for GitHub Pages deployment."
           find public -maxdepth 3 -type f | sort | head -100
 

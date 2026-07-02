@@ -99,7 +99,14 @@ start();
 
 async function start() {
   dataIndex = await loadIndex();
-  renderLastUpdated(dataIndex.generated_at_utc);
+
+  // Load heartbeat status.json for last_checked vs last_data_change
+  let statusData = null;
+  try {
+    statusData = await fetchJson("data/status.json");
+    window._statusData = statusData;
+  } catch (_) {}
+  renderLastUpdated(dataIndex.generated_at_utc, statusData);
 
   try {
     currentWeather = await fetchJson("data/current_weather.json");
@@ -598,11 +605,28 @@ function renderDaySummary(features, dateLabel) {
       <span class="summary-label">Cod maxim</span>
       <div class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
     </div>
-    <div class="summary-item">
-      <span class="summary-label">Actualizat la</span>
-      <div class="summary-value">${escapeHtml(updatedLocal)}</div>
+    <div class="summary-item summary-item--times">
+      <span class="summary-label">Verificat</span>
+      <div class="summary-value" id="summary-checked-time">${escapeHtml(updatedLocal)}</div>
+    </div>
+    <div class="summary-item" id="summary-data-time-item" style="display:none">
+      <span class="summary-label">Date</span>
+      <div class="summary-value" id="summary-data-time">—</div>
     </div>
   `;
+  // Populate heartbeat if status.json was loaded
+  const statusCheckedEl = document.getElementById("summary-checked-time");
+  const statusDataEl = document.getElementById("summary-data-time");
+  const statusDataItem = document.getElementById("summary-data-time-item");
+  if (window._statusData && window._statusData.last_checked_at_ro) {
+    const checkedRo = window._statusData.last_checked_at_ro;
+    const checkedTime = checkedRo.match(/T(\d{2}:\d{2})/)?.[1] || updatedLocal;
+    if (statusCheckedEl) statusCheckedEl.textContent = checkedTime;
+    const dataChangeUtc = window._statusData.last_data_change_at_utc;
+    const dataChangeTime = dataChangeUtc ? formatUtcStamp(dataChangeUtc) : updatedLocal;
+    if (statusDataEl) statusDataEl.textContent = dataChangeTime;
+    if (statusDataItem) statusDataItem.style.display = "";
+  }
 }
 
 function renderStatus(features, dateLabel) {
@@ -1551,9 +1575,18 @@ function isNowcastingRecord(record) {
   return String(record.source || "").toLowerCase().includes("nowcasting");
 }
 
-function renderLastUpdated(value) {
+function renderLastUpdated(generatedAtUtc, statusData) {
   if (!lastUpdatedElement) return;
-  lastUpdatedElement.textContent = `Ultima actualizare: ${formatUtcStamp(value) || "necunoscută"}`;
+  // If we have status.json heartbeat data, show two separate timestamps
+  if (statusData && statusData.last_checked_at_ro) {
+    const checkedRo = statusData.last_checked_at_ro;
+    const checkedTime = checkedRo.match(/T(\d{2}:\d{2})/)?.[1] || "?";
+    const dataChangeUtc = statusData.last_data_change_at_utc || generatedAtUtc;
+    const dataChangeTime = formatUtcStamp(dataChangeUtc) || "?";
+    lastUpdatedElement.innerHTML = `<span title="Ora la care workflow-ul a verificat ANM">Verificat: <strong>${checkedTime}</strong></span> &nbsp;·&nbsp; <span title="Ultima oră la care datele s-au schimbat">Date: <strong>${dataChangeTime}</strong></span>`;
+  } else {
+    lastUpdatedElement.textContent = `Actualizat la: ${formatUtcStamp(generatedAtUtc) || "necunoscută"}`;
+  }
 }
 
 function setCalendarView(dateString) {
