@@ -665,7 +665,7 @@ function renderMap(features) {
     return;
   }
 
-  alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, { pane: selectedSourceMode === "nowcasting" ? "nowcasting-alerts-pane" : "general-alerts-pane",
+  alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, { 
     style: aggregateStyle,
     onEachFeature: onEachAggregateFeature,
   }).addTo(map);
@@ -752,7 +752,6 @@ function aggregateStyle(feature) {
     fillColor: style.fillColor,
     weight: props.has_overlap ? 2.5 : style.weight,
     opacity: 1,
-    dashArray: props.has_overlap ? "5 3" : props.has_nowcasting ? "3 4" : null,
     fillOpacity: style.fillOpacity,
     className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : "", props.has_nowcasting ? "has-nowcasting" : ""].filter(Boolean).join(" "),
   };
@@ -763,7 +762,12 @@ function updateBaseCountyLayer(aggregateFeatures = [], forceGreenMode) {
   const greenMode = typeof forceGreenMode === "boolean"
     ? forceGreenMode
     : shouldShowGreenNoWarningBase(aggregateFeatures);
-  baseCountyMode = greenMode ? "green" : "neutral";
+  
+  if (selectedSourceMode === "nowcasting") {
+    baseCountyMode = "hidden";
+  } else {
+    baseCountyMode = greenMode ? "green" : "neutral";
+  }
   baseCountyAlertRootKeys = new Set(
     aggregateFeatures
       .map((feature) => baseCountyRootKey(feature.properties?.county_key))
@@ -789,6 +793,9 @@ function shouldShowGreenNoWarningBase(aggregateFeatures = []) {
 }
 
 function baseCountyStyle(feature) {
+  if (baseCountyMode === "hidden") {
+    return { color: "transparent", fillColor: "transparent", weight: 0 };
+  }
   return isBaseCountyNoWarning(feature)
     ? BASE_COUNTY_NO_WARNING_STYLE
     : BASE_COUNTY_NEUTRAL_STYLE;
@@ -1603,7 +1610,17 @@ function renderLegendRows(showGreen) {
     </button>
   `).join("");
   legendContainerElement.dataset.showGreen = showGreen ? "true" : "false";
-  legendContainerElement.innerHTML = `<div class="legend-title">Coduri afișate</div>${greenRow}<button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
+  legendContainerElement.innerHTML = `<div class="legend-title">Coduri afișate</div>
+    <div class="legend-items" style="display:flex; flex-direction:column; gap:4px;">
+      ${greenRow}
+      ${rows}
+      <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <button type="button" class="legend-row legend-filter" data-severity="all">
+          <span class="legend-swatch neutral"></span>
+          <span>Toate codurile</span>
+        </button>
+      </div>
+    </div>`;
   legendContainerElement.querySelectorAll(".legend-filter").forEach((button) => {
     button.addEventListener("click", () => {
       if (severityFilter) severityFilter.value = button.dataset.severity || "all";
