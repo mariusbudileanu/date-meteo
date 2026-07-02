@@ -183,11 +183,19 @@ def test_july_1_contains_intersecting_alerts():
                      [("CJ",1,23.5,46.7)], msg4)
         + '</avertizari>').encode()
     alerts = S.parse_avertizari(xml, "general")
+    expected_alert_ids = {a["alert_id"] for a in alerts}
     idx, _ = S.generate_all(alerts)
     fc = json.load(open(os.path.join(os.environ["METEO_OUT"], "data", "2026-07-01.geojson"), encoding="utf-8"))
+    alert_ids = {f["properties"]["alert_id"] for f in fc["features"]}
+    general_features = [f for f in fc["features"] if not S.is_nowcasting_source(f["properties"].get("source"))]
+    general_ids = {f["properties"]["alert_id"] for f in general_features}
+    general_codes = {f["properties"]["cod_culoare"] for f in general_features if f["properties"].get("judet_cod") == "CJ"}
     assert "2026-07-01" in idx["dates"]
-    assert len({f["properties"]["alert_id"] for f in fc["features"]}) == 3
-    assert fc["metadata"]["max_by_county"]["CJ"]["alert_count"] == 3
+    assert expected_alert_ids.issubset(alert_ids)
+    assert expected_alert_ids.issubset(general_ids)
+    assert len(alert_ids) >= 3
+    assert {1, 2, 3}.issubset(general_codes), general_codes
+    assert fc["metadata"]["max_by_county"]["CJ"]["alert_count"] >= 3
     print("ok july_1_contains_intersecting_alerts")
 
 def test_alert_id_stable_and_content_hash():

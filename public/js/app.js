@@ -10,6 +10,18 @@ const ARCHIVE_ONLY_MESSAGE = "Există înregistrări în arhivă pentru această
 const PHENOMENON_FALLBACK = "conform textului avertizării ANM";
 const COD_COLOR = { 1: "#FBBF24", 2: "#F97316", 3: "#EF4444" };
 const COD_NAME = { 1: "Galben", 2: "Portocaliu", 3: "Roșu" };
+const ALERT_GREEN = "#22C55E";
+const ALERT_GREEN_SOFT = "rgba(34, 197, 94, 0.22)";
+const COUNTY_NAMES = {
+  AB: "Alba", AR: "Arad", AG: "Argeș", B: "București", BC: "Bacău", BH: "Bihor",
+  BN: "Bistrița-Năsăud", BR: "Brăila", BT: "Botoșani", BV: "Brașov", BZ: "Buzău",
+  CJ: "Cluj", CL: "Călărași", CS: "Caraș-Severin", CT: "Constanța", CV: "Covasna",
+  DB: "Dâmbovița", DJ: "Dolj", GJ: "Gorj", GL: "Galați", GR: "Giurgiu",
+  HD: "Hunedoara", HR: "Harghita", IF: "Ilfov", IL: "Ialomița", IS: "Iași",
+  MH: "Mehedinți", MM: "Maramureș", MS: "Mureș", NT: "Neamț", OT: "Olt",
+  PH: "Prahova", SB: "Sibiu", SJ: "Sălaj", SM: "Satu Mare", SV: "Suceava",
+  TL: "Tulcea", TM: "Timiș", TR: "Teleorman", VL: "Vâlcea", VN: "Vrancea", VS: "Vaslui",
+};
 const COUNTY_CODES = new Set([
   "AB", "AR", "AG", "B", "BC", "BH", "BN", "BR", "BT", "BV", "BZ", "CJ", "CL", "CS", "CT", "CV",
   "DB", "DJ", "GJ", "GL", "GR", "HD", "HR", "IF", "IL", "IS", "MH", "MM", "MS", "NT", "OT",
@@ -55,6 +67,9 @@ let dataIndex = { dates: {}, files: [] };
 let historyStats = { counties: [] };
 let alertsLayer = null;
 let baseCountyLayer = null;
+let baseCountyMode = "neutral";
+let baseCountyAlertRootKeys = new Set();
+let legendContainerElement = null;
 let selectedDate = "";
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
@@ -313,6 +328,8 @@ function publishDebugState(visibleFeatures, cardRecords) {
     mode: mapMode,
     showOnlyOverlaps,
     selectedCounty,
+    noWarningBaseActive: baseCountyMode === "green",
+    noWarningRootCount: baseCountyMode === "green" ? Math.max(0, COUNTY_CODES.size - baseCountyAlertRootKeys.size) : 0,
     visibleAlertIds: [...visibleAlertIds],
     alertIds: currentRecords.map((record) => record.alert_id),
     cardAlertIds: cardRecords.map((record) => record.alert_id),
@@ -401,6 +418,7 @@ function renderArchiveOnlyDay(dateString, info = {}) {
   setCalendarView(dateString);
   renderCalendar();
   clearAlertsLayer();
+  updateBaseCountyLayer([], false);
   map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
   renderDaySummary([], dateString);
   renderSelectedEmpty(ARCHIVE_ONLY_MESSAGE);
@@ -416,6 +434,7 @@ function renderArchiveOnlyDay(dateString, info = {}) {
 
 function renderEmptyDashboard(dateString, message) {
   clearAlertsLayer();
+  updateBaseCountyLayer([], false);
   map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
   renderDaySummary([], dateString);
   renderSelectedEmpty(message === NO_ALERTS_MESSAGE ? "Nu există avertizări pentru data selectată." : "Selectează un județ colorat pentru detalii.");
@@ -548,15 +567,9 @@ function updateSummaryHtml() {
   const dataValue = statusData.last_data_change_at_ro || statusData.last_data_change_at_utc || dataIndex.generated_at_utc;
   const checkedTime = formatRoTime(checkedValue);
   const dataTime = formatRoTime(dataValue);
-  const checkedDate = parseDateTimeValue(checkedValue);
-  const dataDate = parseDateTimeValue(dataValue);
-  const compact = checkedDate && dataDate && Math.abs(checkedDate.getTime() - dataDate.getTime()) <= 2 * 60 * 1000;
-  if (compact) {
-    return `<span class="update-line">Verificat și actualizat: ${escapeHtml(checkedTime)} RO</span>`;
-  }
   return `
-    <span class="update-line">Verificat ANM: ${escapeHtml(checkedTime)} RO</span>
-    <span class="update-line">Date noi: ${escapeHtml(dataTime)} RO</span>
+    <span>Verificat ANM: <strong>${escapeHtml(checkedTime)} RO</strong></span>
+    <span>Date noi: <strong>${escapeHtml(dataTime)} RO</strong></span>
   `;
 }
 
@@ -577,26 +590,26 @@ function renderDaySummary(features, dateLabel) {
   daySummaryElement.classList.remove("empty-state");
   daySummaryElement.classList.add("map-summary-grid");
   daySummaryElement.innerHTML = `
-    <div class="summary-item">
+    <article class="summary-item summary-item--date">
       <span class="summary-label">Data selectată</span>
-      <div class="summary-value">${escapeHtml(dateText)}</div>
-    </div>
-    <div class="summary-item">
+      <strong class="summary-value">${escapeHtml(dateText)}</strong>
+    </article>
+    <article class="summary-item">
       <span class="summary-label">Avertizări active</span>
-      <div class="summary-value">${alertCount}</div>
-    </div>
-    <div class="summary-item">
+      <strong class="summary-value">${alertCount}</strong>
+    </article>
+    <article class="summary-item">
       <span class="summary-label">Zone afectate</span>
-      <div class="summary-value">${zoneCount}</div>
-    </div>
-    <div class="summary-item summary-item--max-code">
+      <strong class="summary-value">${zoneCount}</strong>
+    </article>
+    <article class="summary-item summary-item--max-code">
       <span class="summary-label">Cod maxim</span>
-      <div class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</div>
-    </div>
-    <div class="summary-item summary-item--update" title="„Verificat ANM” indică ultima interogare a surselor ANM. „Date noi” indică ultima modificare detectată în avertizări.">
+      <strong class="summary-value${severityClass}">${escapeHtml(COD_NAME[maxCode] || "Niciunul")}</strong>
+    </article>
+    <article class="summary-item summary-item--update" title="„Verificat ANM” indică ultima interogare a surselor ANM. „Date noi” indică ultima modificare detectată în avertizări.">
       <span class="summary-label">Actualizare</span>
-      <div class="summary-value">${updateSummaryHtml()}</div>
-    </div>
+      <span class="summary-update-lines">${updateSummaryHtml()}</span>
+    </article>
   `;
 }
 
@@ -632,16 +645,18 @@ function mapMetaText(features, dateLabel) {
 
 function renderMap(features) {
   clearAlertsLayer();
+  const aggregateFeatures = aggregateFeaturesByCounty(features).sort((a, b) => aggregateZIndexScore(a) - aggregateZIndexScore(b));
+  updateBaseCountyLayer(aggregateFeatures);
   if (!features.length) {
     map.fitBounds(ROMANIA_BOUNDS, { padding: [20, 20] });
     return;
   }
 
-  const aggregateFeatures = aggregateFeaturesByCounty(features).sort((a, b) => aggregateZIndexScore(a) - aggregateZIndexScore(b));
   alertsLayer = L.geoJSON({ type: "FeatureCollection", features: aggregateFeatures }, {
     style: aggregateStyle,
     onEachFeature: onEachAggregateFeature,
   }).addTo(map);
+  alertsLayer.bringToFront();
 
   requestAnimationFrame(() => refitMapToCurrentLayer());
   setTimeout(() => {
@@ -693,6 +708,23 @@ const ALERT_STYLES = {
   3: { color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.32, weight: 1.8 }
 };
 
+const BASE_COUNTY_NEUTRAL_STYLE = {
+  color: "#64748B",
+  weight: 0.8,
+  opacity: 0.42,
+  fillColor: "#64748B",
+  fillOpacity: 0.035,
+};
+
+const BASE_COUNTY_NO_WARNING_STYLE = {
+  color: ALERT_GREEN,
+  fillColor: ALERT_GREEN,
+  fillOpacity: 0.16,
+  weight: 1.1,
+  opacity: 0.85,
+  className: "no-warning-county",
+};
+
 function aggregateStyle(feature) {
   const props = feature.properties || {};
   const code = safeNumber(props.max_code, 0);
@@ -711,6 +743,113 @@ function aggregateStyle(feature) {
     fillOpacity: style.fillOpacity,
     className: ["alert-county", props.county_key ? `county-${props.county_key}` : "", props.has_overlap ? "has-overlap" : "", props.has_nowcasting ? "has-nowcasting" : ""].filter(Boolean).join(" "),
   };
+}
+
+function updateBaseCountyLayer(aggregateFeatures = [], forceGreenMode) {
+  if (!baseCountyLayer) return;
+  const greenMode = typeof forceGreenMode === "boolean"
+    ? forceGreenMode
+    : shouldShowGreenNoWarningBase(aggregateFeatures);
+  baseCountyMode = greenMode ? "green" : "neutral";
+  baseCountyAlertRootKeys = new Set(
+    aggregateFeatures
+      .map((feature) => baseCountyRootKey(feature.properties?.county_key))
+      .filter(Boolean)
+  );
+  baseCountyLayer.setStyle((feature) => baseCountyStyle(feature));
+  baseCountyLayer.eachLayer((layer) => {
+    const element = layer.getElement?.();
+    if (element) element.classList.toggle("no-warning-county", isBaseCountyNoWarning(layer.feature));
+  });
+  baseCountyLayer.bringToBack();
+  updateLegendActiveState();
+}
+
+function shouldShowGreenNoWarningBase(aggregateFeatures = []) {
+  return currentFeatures.length > 0
+    && aggregateFeatures.length > 0
+    && mapMode === "max"
+    && selectedSeverity === "all"
+    && selectedPhenomenon === "all"
+    && !showOnlyOverlaps
+    && selectedSourceMode !== "nowcasting";
+}
+
+function baseCountyStyle(feature) {
+  return isBaseCountyNoWarning(feature)
+    ? BASE_COUNTY_NO_WARNING_STYLE
+    : BASE_COUNTY_NEUTRAL_STYLE;
+}
+
+function isBaseCountyNoWarning(feature) {
+  const root = baseCountyRootKey(baseCountyKey(feature));
+  return baseCountyMode === "green" && root && !baseCountyAlertRootKeys.has(root);
+}
+
+function baseCountyKey(feature) {
+  const props = feature?.properties || {};
+  return String(props.judet_cod || props.cod_judet || props.county_code || props.mnemonic || "").trim();
+}
+
+function baseCountyRootKey(key) {
+  return String(key || "").split("_")[0].trim();
+}
+
+function countyDisplayNameFromKey(key) {
+  const raw = String(key || "").trim();
+  const root = baseCountyRootKey(raw);
+  const baseName = COUNTY_NAMES[root] || raw || "Județ";
+  const suffix = raw.includes("_") ? raw.split("_").slice(1).join(" ").replace(/\s+/g, " ").trim() : "";
+  return suffix ? `${baseName} - ${suffix}` : baseName;
+}
+
+function baseCountyDisplayName(feature) {
+  const key = baseCountyKey(feature);
+  const props = feature?.properties || {};
+  const rawName = String(props.judet_nume || props.name || "").trim();
+  if (rawName && rawName !== key && rawName !== baseCountyRootKey(key)) return rawName;
+  return countyDisplayNameFromKey(key);
+}
+
+function noWarningPopupHtml(feature) {
+  return `
+    <strong>${escapeHtml(baseCountyDisplayName(feature))}</strong><br>
+    Fără avertizări active pentru data selectată.
+  `;
+}
+
+function renderNoWarningCountyPanel(feature) {
+  const key = baseCountyKey(feature);
+  selectedCountyKey = key;
+  selectedCounty = key;
+  featureDetailsElement.classList.remove("empty-state");
+  featureDetailsElement.innerHTML = `
+    <div class="county-header no-warning-county-header">
+      <div>
+        <span class="panel-eyebrow">Județ selectat</span>
+        <h2>${escapeHtml(baseCountyDisplayName(feature))}</h2>
+      </div>
+      <span class="cod cod-no-warning">Fără avertizare</span>
+    </div>
+    <p class="no-warning-county-message">Fără avertizări active pentru data selectată.</p>
+  `;
+}
+
+function onEachBaseCountyFeature(feature, layer) {
+  layer.on({
+    click: (event) => {
+      if (!isBaseCountyNoWarning(feature)) return;
+      renderNoWarningCountyPanel(feature);
+      layer.bindPopup(noWarningPopupHtml(feature)).openPopup(event.latlng);
+    },
+    mouseover: () => {
+      if (!isBaseCountyNoWarning(feature)) return;
+      layer.setStyle({ weight: 2.2, fillOpacity: 0.26 });
+    },
+    mouseout: () => {
+      layer.setStyle(baseCountyStyle(feature));
+    },
+  });
 }
 
 function onEachAggregateFeature(feature, layer) {
@@ -1271,9 +1410,11 @@ async function loadBaseCounties() {
   try {
     const data = await fetchJson("data/judete.geojson");
     baseCountyLayer = L.geoJSON(data, {
-      style: () => ({ color: "#64748B", weight: 0.8, opacity: 0.42, fillColor: "#64748B", fillOpacity: 0.035 }),
-      interactive: false,
+      style: (feature) => baseCountyStyle(feature),
+      interactive: true,
+      onEachFeature: onEachBaseCountyFeature,
     }).addTo(map);
+    updateBaseCountyLayer([], false);
     baseCountyLayer.bringToBack();
   } catch (error) {
     console.warn("judete.geojson could not be loaded", error);
@@ -1428,29 +1569,40 @@ function addLegend() {
   const legend = L.control({ position: "bottomright" });
   legend.onAdd = () => {
     const container = L.DomUtil.create("div", "leaflet-control legend dashboard-legend");
+    legendContainerElement = container;
     L.DomEvent.disableClickPropagation(container);
-    const rows = [1, 2, 3].map((code) => `
-      <button type="button" class="legend-row legend-filter" data-severity="${code}">
-        <span class="legend-swatch" style="background:${COD_COLOR[code]}"></span>
-        <span>${COD_NAME[code]}</span>
-      </button>
-    `).join("");
-    container.innerHTML = `<div class="legend-title">Coduri afișate</div><button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
-    setTimeout(() => {
-      container.querySelectorAll(".legend-filter").forEach((button) => {
-        button.addEventListener("click", () => {
-          if (severityFilter) severityFilter.value = button.dataset.severity || "all";
-          updateDashboard();
-        });
-      });
-      updateLegendActiveState();
-    }, 0);
+    renderLegendRows(false);
     return container;
   };
   legend.addTo(map);
 }
 
+function renderLegendRows(showGreen) {
+  if (!legendContainerElement) return;
+  const greenRow = showGreen
+    ? `<div class="legend-row legend-row-static no-warning-legend"><span class="legend-swatch no-warning"></span><span>Verde — Fără avertizare</span></div>`
+    : "";
+  const rows = [1, 2, 3].map((code) => `
+    <button type="button" class="legend-row legend-filter" data-severity="${code}">
+      <span class="legend-swatch" style="background:${COD_COLOR[code]}"></span>
+      <span>${COD_NAME[code]}</span>
+    </button>
+  `).join("");
+  legendContainerElement.dataset.showGreen = showGreen ? "true" : "false";
+  legendContainerElement.innerHTML = `<div class="legend-title">Coduri afișate</div>${greenRow}<button type="button" class="legend-row legend-filter" data-severity="all"><span class="legend-swatch neutral"></span><span>Toate codurile</span></button>${rows}`;
+  legendContainerElement.querySelectorAll(".legend-filter").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (severityFilter) severityFilter.value = button.dataset.severity || "all";
+      updateDashboard();
+    });
+  });
+}
+
 function updateLegendActiveState() {
+  const showGreen = baseCountyMode === "green";
+  if (legendContainerElement && legendContainerElement.dataset.showGreen !== (showGreen ? "true" : "false")) {
+    renderLegendRows(showGreen);
+  }
   const active = selectedSeverity || "all";
   document.querySelectorAll(".legend-filter").forEach((button) => {
     button.classList.toggle("active", (button.dataset.severity || "all") === active);

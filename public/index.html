@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="css/style.css?v=final-polish-1">
+    <link rel="stylesheet" href="css/style.css?v=final-green-summary-1">
   </head>
   <body>
     <header class="app-header dashboard-header">
@@ -77,7 +77,9 @@
 
         <section class="map-column" aria-label="Rezumat și hartă avertizări">
           <section class="dashboard-panel map-summary-panel" aria-labelledby="summary-panel-title">
-            <h2 id="summary-panel-title" class="section-title">Rezumat zi</h2>
+            <div class="summary-header">
+              <span id="summary-panel-title" class="summary-eyebrow">Rezumat zi</span>
+            </div>
             <div id="day-summary" class="map-summary-grid" aria-live="polite">
               <div class="summary-loading">Se încarcă rezumatul zilei...</div>
             </div>
@@ -192,6 +194,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
-    <script src="js/app.js?v=final-polish-1"></script>
+    <script src="js/app.js?v=final-green-summary-1"></script>
   </body>
 </html>
