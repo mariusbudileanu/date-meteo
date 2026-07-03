@@ -23,7 +23,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: "meteoalertro-pages"
+  group: "scrape-anm-main"
   cancel-in-progress: false
 
 jobs:
@@ -77,9 +77,29 @@ jobs:
             echo "pushed_changes=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "Update ANM generated data"
-            git push origin main
+            git pull --rebase origin main
+            git push origin main || (git pull --rebase origin main && git push origin main)
             echo "pushed_changes=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Write failure summary
+        if: failure()
+        run: |
+          mkdir -p public/debug/workflow_failures
+          python scripts/write_failure_summary.py
+
+      - name: Upload debug logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-run-debug-${{ github.run_id }}
+          path: |
+            public/data/status.json
+            public/debug/nowcasting/*summary.json
+            debug_workflow/*.txt
+            debug_workflow/*.log
+          retention-days: 14
+          if-no-files-found: ignore
 
   deploy_pages:
     needs: scrape_and_commit
