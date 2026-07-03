@@ -125,6 +125,10 @@ populatePhenomenonFilter();
 addLegend();
 start();
 
+// Ensure modal starts after DOM is fully ready or just directly, 
+// since app.js is loaded at the end of the body
+initInfoModal();
+
 async function start() {
   dataIndex = await loadIndex();
 
@@ -2073,4 +2077,43 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function initInfoModal() {
+  const button = document.getElementById("infoButton");
+  const modal = document.getElementById("infoModal");
+  const dialog = modal?.querySelector(".info-modal-dialog");
+  const closeButtons = modal?.querySelectorAll("[data-close-info]");
+
+  if (!button || !modal || !dialog) return;
+
+  let lastFocusedElement = null;
+
+  function openModal() {
+    lastFocusedElement = document.activeElement;
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+    dialog.focus();
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    document.body.classList.remove("modal-open");
+
+    if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
+      lastFocusedElement.focus();
+    }
+  }
+
+  button.addEventListener("click", openModal);
+
+  closeButtons.forEach((element) => {
+    element.addEventListener("click", closeModal);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) {
+      closeModal();
+    }
+  });
 }

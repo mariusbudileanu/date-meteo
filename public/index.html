@@ -16,6 +16,10 @@
         <div class="brand-block">
           <h1 class="dashboard-title">MeteoAlertRO</h1>
         </div>
+        <button id="infoButton" class="info-button" type="button" aria-haspopup="dialog" aria-controls="infoModal">
+          <span class="info-button-icon" aria-hidden="true">i</span>
+          <span>Ghid rapid</span>
+        </button>
       </div>
     </header>
 
@@ -186,6 +190,113 @@
         </section>
       </section>
     </main>
+
+    <div id="infoModal" class="info-modal" hidden>
+      <div class="info-modal-backdrop" data-close-info></div>
+
+      <section
+        class="info-modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="infoModalTitle"
+        tabindex="-1"
+      >
+        <button class="info-modal-close" type="button" data-close-info aria-label="Închide ghidul">
+          ×
+        </button>
+
+        <header class="info-modal-header">
+          <span class="info-modal-eyebrow">Ghid rapid</span>
+          <h2 id="infoModalTitle">Cum se folosește MeteoAlertRO</h2>
+          <p>
+            MeteoAlertRO utilizează date oficiale publicate de Administrația Națională de Meteorologie – <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a>. Aplicația colectează, arhivează și vizualizează avertizările meteo în timp real, pentru a permite monitorizarea situațiilor meteo și consultarea istoricului.
+          </p>
+        </header>
+
+        <div class="info-modal-content">
+          <section class="info-guide-section">
+            <h3>1. Cum citești harta</h3>
+            <p>
+              Harta colorează județele sau zonele afectate în funcție de codul meteo.
+              În modul General ANM, județele fără avertizare apar cu verde.
+            </p>
+
+            <ul>
+              <li><strong>Verde</strong> — fără avertizare pentru data selectată;</li>
+              <li><strong>Galben</strong> — atenționare meteo;</li>
+              <li><strong>Portocaliu</strong> — avertizare severă;</li>
+              <li><strong>Roșu</strong> — fenomene meteo periculoase.</li>
+            </ul>
+          </section>
+
+          <section class="info-guide-section">
+            <h3>2. Calendarul</h3>
+            <p>
+              Calendarul permite selectarea unei zile din arhivă. Zilele colorate au avut avertizări meteo arhivate.
+            </p>
+
+            <ul>
+              <li><strong>Culoarea zilei</strong> indică cel mai sever cod al zilei;</li>
+              <li><strong>NC</strong> indică avertizări nowcasting capturate automat;</li>
+              <li><strong>NC*</strong> indică avertizări nowcasting introduse prin import manual.</li>
+            </ul>
+          </section>
+
+          <section class="info-guide-section">
+            <h3>3. General ANM și Nowcasting</h3>
+            <p>
+              Avertizările generale ANM acoperă de obicei perioade mai lungi și zone mai mari.
+              Nowcasting-ul este emis pentru fenomene imediate, pe intervale scurte, deseori la nivel de localități.
+            </p>
+
+            <ul>
+              <li><strong>General ANM</strong> — avertizări pe județe sau regiuni;</li>
+              <li><strong>Nowcasting</strong> — avertizări rapide, pe localități sau zone restrânse.</li>
+            </ul>
+          </section>
+
+          <section class="info-guide-section">
+            <h3>4. Cum se actualizează datele</h3>
+            <p>
+              Aplicația verifică periodic sursele ANM printr-un workflow automat. Frecvența actuală este de aproximativ 15 minute.
+            </p>
+
+            <ul>
+              <li><strong>Verificat ANM</strong> arată ultima verificare a surselor ANM;</li>
+              <li><strong>Date noi</strong> arată momentul ultimei modificări detectate în avertizări;</li>
+              <li>În anumite cazuri, publicarea pe GitHub Pages poate întârzia din cauza infrastructurii GitHub.</li>
+            </ul>
+          </section>
+
+          <section class="info-guide-section">
+            <h3>5. Filtre și interacțiuni</h3>
+            <p>
+              Folosește panoul din stânga pentru a schimba data, sursa datelor, fenomenul, codul sau modul de afișare.
+            </p>
+
+            <ul>
+              <li>Click pe un județ sau pe o zonă nowcasting pentru detalii;</li>
+              <li>Folosește filtrul de cod pentru a afișa doar anumite niveluri de avertizare;</li>
+              <li>În panoul din dreapta apar detaliile pentru județul sau zona selectată.</li>
+            </ul>
+          </section>
+
+          <section class="info-guide-section">
+            <h3>6. Arhivă și date brute</h3>
+            <p>
+              Avertizările sunt salvate în fișiere zilnice și în arhive CSV lunare. Acestea pot fi descărcate din secțiunea „Descărcări CSV”.
+            </p>
+          </section>
+
+          <section class="info-guide-note">
+            <p>
+              MeteoAlertRO este un proiect de monitorizare și arhivare. Pentru decizii oficiale și avertizări în timp real,
+              consultă întotdeauna sursele oficiale ANM.
+            </p>
+          </section>
+        </div>
+      </section>
+    </div>
 
     <footer class="app-footer">
       MeteoAlertRO utilizează date oficiale publicate de Administrația Națională de Meteorologie - <a href="https://www.meteoromania.ro/" target="_blank" rel="noopener noreferrer">meteoromania.ro</a>. Acesta este un proiect de colectare, arhivare și vizualizare a avertizărilor meteo în timp real, cu scop de monitorizare pe termen lung.
