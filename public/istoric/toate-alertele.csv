@@ -3467,3 +3467,45 @@ Zone afectate: Dobrogea, estul Munteniei și sud-estul Moldovei
 <p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><span lang=""RO"">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span lang=""RO""> Pe parcursul zilei de vineri (28 august), &icirc;n Dobrogea, estul Munteniei și sud-estul Moldovei vor fi intensificări ale v&acirc;ntului cu viteze de 50...70 km/h.</span></span></p>
 <p>&nbsp;</p>
 <p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;"" lang=""RO""><strong><em><span lang=""RO"">&Icirc;n funcţie de evoluţia şi intensitatea fenomenelor meteorologice, Administraţia Naţională de Meteorologie va actualiza prezentul mesaj</span></em></strong><strong><em><span lang=""RO"">.</span></em></strong> </span></p>",,,
+f75d2362a0ca78f1,2026-08-28T12:44:07+00:00,2026-08-28T12:44:07+00:00,false,b10d17c66594,general,general,2026-08-28T10:00,": 28 august, ora 10 – 28 august, ora 20",2026-08-28T10:00:00,2026-08-28T20:00:00,10.0,1,"{""1"": ""intensificări ale vântului""}","Dobrogea, estul Munteniei, sudul Moldovei și local în sudul Banatului",BR;BZ;CL;CS;CT;GL;IL;TL;VN,9,"{""CS"": 1, ""TL"": 1, ""CT"": 1, ""BR"": 1, ""GL"": 1, ""IL"": 1, ""CL"": 1, ""BZ"": 1, ""VN"": 1}","{""CS"": {""county_code"": ""CS"", ""county_name"": ""Caraș-Severin"", ""zone_name"": ""Caraș-Severin"", ""display_name"": ""Caraș-Severin"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""TL"": {""county_code"": ""TL"", ""county_name"": ""Tulcea"", ""zone_name"": ""Tulcea"", ""display_name"": ""Tulcea"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""CT"": {""county_code"": ""CT"", ""county_name"": ""Constanța"", ""zone_name"": ""Constanța"", ""display_name"": ""Constanța"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""BR"": {""county_code"": ""BR"", ""county_name"": ""Brăila"", ""zone_name"": ""Brăila"", ""display_name"": ""Brăila"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""GL"": {""county_code"": ""GL"", ""county_name"": ""Galați"", ""zone_name"": ""Galați"", ""display_name"": ""Galați"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""IL"": {""county_code"": ""IL"", ""county_name"": ""Ialomița"", ""zone_name"": ""Ialomița"", ""display_name"": ""Ialomița"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""CL"": {""county_code"": ""CL"", ""county_name"": ""Călărași"", ""zone_name"": ""Călărași"", ""display_name"": ""Călărași"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""BZ"": {""county_code"": ""BZ"", ""county_name"": ""Buzău"", ""zone_name"": ""Buzău"", ""display_name"": ""Buzău"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}, ""VN"": {""county_code"": ""VN"", ""county_name"": ""Vrancea"", ""zone_name"": ""Vrancea"", ""display_name"": ""Vrancea"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}}","MESAJ 1/ 2
+
+ATENȚIONARE METEOROLOGICĂ
+
+COD GALBEN
+
+Interval de valabilitate: 28 august, ora 10 – 28 august, ora 20
+Fenomene vizate: intensificări ale vântului
+Zone afectate: Dobrogea, estul Munteniei, sudul Moldovei și local în sudul Banatului
+
+       Pe parcursul zilei de vineri (28 august), în Dobrogea, estul Munteniei, sudul Moldovei și local în sudul Banatului vor fi intensificări ale vântului cu viteze de 50...70 km/h.","<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><strong><span lang=""RO"">MESAJ 1/ 2</span></strong></span></p>
+<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><strong><span lang=""RO"">ATENȚIONARE METEOROLOGICĂ</span></strong></span></p>
+<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><img src=""../wp-content/plugins/meteo/admin/images/galben.gif"" alt="""" align=""absmiddle"" /><strong><span lang=""RO"">COD GALBEN</span></strong></span></p>
+<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><strong><span lang=""RO"">Interval de valabilitate: 28 august, ora 10 &ndash; 28 august, ora 20<br /></span></strong><strong style=""font-family: verdana, geneva; font-size: small;""><span lang=""RO"">Fenomene vizate: intensificări ale v&acirc;ntului<br /></span></strong><strong style=""font-family: verdana, geneva; font-size: small;""><span lang=""RO"">Zone afectate: Dobrogea, estul Munteniei, sudul Moldovei și local &icirc;n sudul Banatului</span></strong></span></p>
+<p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;"" lang=""RO"">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Pe parcursul zilei de vineri (28 august), &icirc;n Dobrogea, estul Munteniei, sudul Moldovei și local &icirc;n sudul Banatului vor fi intensificări ale v&acirc;ntului cu viteze de 50...70 km/h.</span></p>",,,
+55aa8efbbad1c332,2026-08-28T12:44:07+00:00,2026-08-28T12:44:07+00:00,false,9741bf69e759,general,general,2026-08-28T10:00,"28 august, ora 20 – 29 august, ora 18",2026-08-28T20:00:00,2026-08-29T18:00:00,22.0,1,"{""1"": ""intensificări ale vântului""}",județul Caraș-Severin,CS,1,"{""CS"": 1}","{""CS"": {""county_code"": ""CS"", ""county_name"": ""Caraș-Severin"", ""zone_name"": ""Caraș-Severin"", ""display_name"": ""Caraș-Severin"", ""localities"": [], ""geometry_source"": ""coordGis"", ""match_confidence"": ""high""}}","MESAJ 2/2
+ATENȚIONARE METEOROLOGICĂ
+
+COD GALBEN
+
+Interval de valabilitate: 28 august, ora 20 – 29 august, ora 18
+Fenomene vizate: intensificări ale vântului
+Zone afectate: județul Caraș-Severin
+ 
+
+       În intervalul menționat, local în județul Caraș-Severin vor fi intensificări ale vântului cu viteze de 50...70 km/h.
+
+ 
+
+     Notă: intensificări ale vântului cu viteze de 40...50 km/h vor fi pe arii restrânse și în vestul și nordul țării.
+
+ 
+
+În funcţie de evoluţia şi intensitatea fenomenelor meteorologice, Administraţia Naţională de Meteorologie va actualiza prezentul mesaj
+.","<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><strong><span lang=""RO"">MESAJ 2/2<br />ATENȚIONARE METEOROLOGICĂ</span></strong></span></p>
+<p align=""center""><span style=""color: #000000;""><img src=""../wp-content/plugins/meteo/admin/images/galben.gif"" alt="""" align=""absmiddle"" /><span style=""font-size: small; font-family: verdana, geneva;""><strong><span lang=""RO"">COD GALBEN</span></strong></span></span></p>
+<p align=""center""><span style=""color: #000000;""><span style=""font-size: small; font-family: verdana, geneva;""><strong><span lang=""RO"">Interval de valabilitate: 28 august, ora 20 &ndash; 29 august, ora 18<br /></span></strong></span><strong style=""font-family: verdana, geneva; font-size: small;""><span lang=""RO"">Fenomene vizate: intensificări ale v&acirc;ntului<br /></span></strong><strong style=""font-family: verdana, geneva; font-size: small;""><span lang=""RO"">Zone afectate: județul Caraș-Severin</span></strong><strong style=""font-family: verdana, geneva; font-size: small;""><span lang=""RO"">&nbsp;</span></strong></span></p>
+<p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;"" lang=""RO"">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &Icirc;n intervalul menționat, local &icirc;n județul Caraș-Severin vor fi intensificări ale v&acirc;ntului cu viteze de 50...70 km/h.</span></p>
+<p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;"" lang=""RO"">&nbsp;</span></p>
+<p><span style=""font-size: small; font-family: verdana, geneva; color: #000000;"" lang=""RO"">&nbsp;&nbsp;&nbsp;&nbsp; Notă: intensificări ale v&acirc;ntului cu viteze de 40...50 km/h vor fi pe arii restr&acirc;nse și &icirc;n vestul și nordul țării.</span></p>
+<p><span style=""color: #000000;"">&nbsp;</span></p>
+<p align=""center""><span style=""font-size: small; font-family: verdana, geneva; color: #000000;""><strong><em><span lang=""RO"">&Icirc;n funcţie de evoluţia şi intensitatea fenomenelor meteorologice, Administraţia Naţională de Meteorologie va actualiza prezentul mesaj</span></em></strong><strong><em><span lang=""RO"">.</span></em></strong></span></p>",,,
